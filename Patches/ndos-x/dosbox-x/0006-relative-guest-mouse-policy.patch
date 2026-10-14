@@ -1,0 +1,32 @@
+diff --git a/src/gui/sdlmain.cpp b/src/gui/sdlmain.cpp
+index c92f2ae8b..ff7f484bd 100644
+--- a/src/gui/sdlmain.cpp
++++ b/src/gui/sdlmain.cpp
+@@ -4786,7 +4786,12 @@ void UpdateUserCursorScreenDimensions(void) {
+ 
+ static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
+ #ifdef NDOS_X_HOST
+-    // The app provides relative motion independently of SDL window capture.
++    // nDOS supplies relative motion without an SDL-owned pointer. Keep the
++    // guest's integration policy relative/captured so INT33 does not replace
++    // these deltas with the dummy window's absolute (0,0) cursor position.
++    user_cursor_emulation = MOUSE_EMULATION_ALWAYS;
++    user_cursor_locked = true;
++    UpdateUserCursorScreenDimensions();
+     Mouse_CursorMoved(static_cast<float>(motion->xrel) * sdl.mouse.xsensitivity / 100.0f,
+                       static_cast<float>(motion->yrel) * sdl.mouse.ysensitivity / 100.0f,
+                       0.0f, 0.0f, true);
+@@ -10906,7 +10911,13 @@ void GUI_ResetResize(bool pressed) {
+ 
+ bool MOUSE_IsLocked()
+ {
++#ifdef NDOS_X_HOST
++    // This is guest capture policy, not an SDL window-grab request. INT33
++    // motion counters and callbacks must report the app's relative input.
++    return true;
++#else
+     return sdl.mouse.locked;
++#endif
+ }
+ 
+ #if defined(C_SDL2) && defined(C_OPENGL)/*HACK*/

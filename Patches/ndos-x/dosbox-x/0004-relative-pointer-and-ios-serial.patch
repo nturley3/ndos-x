@@ -1,0 +1,45 @@
+diff --git a/src/gui/sdlmain.cpp b/src/gui/sdlmain.cpp
+index fd173e871..c92f2ae8b 100644
+--- a/src/gui/sdlmain.cpp
++++ b/src/gui/sdlmain.cpp
+@@ -4785,6 +4785,14 @@ void UpdateUserCursorScreenDimensions(void) {
+ }
+ 
+ static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
++#ifdef NDOS_X_HOST
++    // The app provides relative motion independently of SDL window capture.
++    Mouse_CursorMoved(static_cast<float>(motion->xrel) * sdl.mouse.xsensitivity / 100.0f,
++                      static_cast<float>(motion->yrel) * sdl.mouse.ysensitivity / 100.0f,
++                      0.0f, 0.0f, true);
++    return;
++#endif
++
+     bool inputToScreen = false;
+ 
+     /* limit mouse input to whenever the cursor is on the screen, or near the edge of the screen. */
+diff --git a/src/hardware/RetroWaveLib/Platform/POSIX_SerialPort.c b/src/hardware/RetroWaveLib/Platform/POSIX_SerialPort.c
+index 002b37ddf..70ea2956b 100644
+--- a/src/hardware/RetroWaveLib/Platform/POSIX_SerialPort.c
++++ b/src/hardware/RetroWaveLib/Platform/POSIX_SerialPort.c
+@@ -61,7 +61,7 @@ int set_tty(int fd) {
+ 		return -1;
+ 	}
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) && !defined(NDOS_X_HOST)
+ 	int speed = 2000000;
+ 
+ 	if (ioctl(fd, IOSSIOSPEED, &speed) == -1) {
+diff --git a/src/hardware/RetroWaveLib/Platform/POSIX_SerialPort.h b/src/hardware/RetroWaveLib/Platform/POSIX_SerialPort.h
+index b8a79a6fe..f11f8821d 100644
+--- a/src/hardware/RetroWaveLib/Platform/POSIX_SerialPort.h
++++ b/src/hardware/RetroWaveLib/Platform/POSIX_SerialPort.h
+@@ -34,7 +34,7 @@
+ #include <sys/ioctl.h>
+ #include <sys/file.h>
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) && !defined(NDOS_X_HOST)
+ #include <IOKit/serial/ioss.h>
+ #endif
+ 

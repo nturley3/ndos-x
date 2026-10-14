@@ -1,0 +1,55 @@
+diff --git a/src/gui/sdlmain.cpp b/src/gui/sdlmain.cpp
+index 719e5ed31..712be0d52 100644
+--- a/src/gui/sdlmain.cpp
++++ b/src/gui/sdlmain.cpp
+@@ -3309,6 +3309,11 @@ void GFX_OpenGLRedrawScreen(void) {
+ #endif
+ }
+ 
++#ifdef NDOS_X_HOST
++extern "C" int ndos_x_host_poll(void);
++extern "C" void ndos_x_host_present(const void *, int, int, int, unsigned int);
++#endif
++
+ void GFX_EndUpdate(const uint16_t *changedLines) {
+ #if C_EMSCRIPTEN
+     emscripten_sleep(0);
+@@ -3356,6 +3361,15 @@ switch_type:
+     {
+         case SCREEN_SURFACE:
+             OUTPUT_SURFACE_EndUpdate(changedLines);
++#ifdef NDOS_X_HOST
++            if (changedLines && sdl.surface && sdl.surface->pixels) {
++                const uint8_t *pixels = static_cast<const uint8_t *>(sdl.surface->pixels)
++                    + sdl.clip.y * sdl.surface->pitch
++                    + sdl.clip.x * sdl.surface->format->BytesPerPixel;
++                ndos_x_host_present(pixels, sdl.clip.w, sdl.clip.h,
++                                    sdl.surface->pitch, sdl.surface->format->format);
++            }
++#endif
+             break;
+ 
+ #if C_OPENGL
+@@ -5902,6 +5916,9 @@ bool gfx_in_mapper = false;
+ #endif
+ 
+ void GFX_Events() {
++#ifdef NDOS_X_HOST
++    if (ndos_x_host_poll()) throw(0);
++#endif
+     CheckMapperKeyboardLayout();
+ #if defined(C_SDL2) /* SDL 2.x---------------------------------- */
+     //Don't poll too often. This can be heavy on the OS, especially Macs.
+@@ -8441,7 +8458,12 @@ void jsc_run(const char *jskey) {
+ void DISP2_Init(uint8_t color), DISP2_Shut();
+ //extern void UI_Init(void);
+ void grGlideShutdown(void);
++#ifdef NDOS_X_HOST
++#undef main
++int ndos_x_engine_main(int argc, char* argv[]) SDL_MAIN_NOEXCEPT {
++#else
+ int main(int argc, char* argv[]) SDL_MAIN_NOEXCEPT {
++#endif
+ #if (defined __i386__ || defined __x86_64__) && (!defined IS_OLDMACOS && (defined BSD || defined LINUX))
+     dropPrivilegesTemp();
+ #endif

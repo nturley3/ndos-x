@@ -1,0 +1,13 @@
+diff --git a/src/hardware/serialport/libserial.cpp b/src/hardware/serialport/libserial.cpp
+index 68d479993..00abe7552 100644
+--- a/src/hardware/serialport/libserial.cpp
++++ b/src/hardware/serialport/libserial.cpp
+@@ -256,7 +256,7 @@ bool SERIAL_setCommParameters(COMPORT port,
+ }
+ #endif
+ 
+-#if defined (LINUX) || defined (MACOSX) || defined (BSD) || defined (HAIKU)
++#if defined (LINUX) || defined (MACOSX) || defined (BSD) || defined (HAIKU) || defined(NDOS_X_HOST)
+ 
+ #include <string.h> // strlen
+ #include <stdlib.h>

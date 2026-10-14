@@ -1,0 +1,6 @@
+[submodule "vendor/SDL2"]
+	path = vendor/SDL2
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "vendor/dosbox-x"]
+	path = vendor/dosbox-x
+	url = https://github.com/joncampbell123/dosbox-x.git

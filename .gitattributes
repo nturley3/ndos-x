@@ -1,0 +1,2 @@
+# Patch context and upstream CRLF bytes are significant; do not normalize them.
+/Patches/ndos-x/**/*.patch -text -whitespace

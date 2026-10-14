@@ -1,0 +1,8 @@
+#ifdef __OBJC__
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#endif
+#include "SDL.h"
+// Keep nDOS history storage distinct from DOSBox-X's shell command table.
+#define cmd_list ndos_x_history_list
+#define cmd_count ndos_x_history_count

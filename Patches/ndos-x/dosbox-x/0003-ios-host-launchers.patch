@@ -1,0 +1,69 @@
+diff --git a/src/dos/drive_local.cpp b/src/dos/drive_local.cpp
+index 291160a61..c4821457b 100644
+--- a/src/dos/drive_local.cpp
++++ b/src/dos/drive_local.cpp
+@@ -127,7 +127,7 @@ bool cpwarn_once = false, ignorespecial = false, notrycp = false;
+ std::string prefix_local = ".DBLOCALFILE";
+ 
+ 
+-#if __APPLE__ && __MAC_OS_X_VERSION_MIN_REQUIRED < 101300
++#if __APPLE__ && !defined(NDOS_X_HOST) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101300
+ // futimens() not available in macOS 10.12 (Sierra) and before
+ #include <sys/time.h>
+ #include <sys/stat.h>
+diff --git a/src/gui/sdlmain.cpp b/src/gui/sdlmain.cpp
+index 712be0d52..5a5d9d591 100644
+--- a/src/gui/sdlmain.cpp
++++ b/src/gui/sdlmain.cpp
+@@ -7152,6 +7152,10 @@ static void show_warning(char const * const message) {
+ }
+ 
+ static void launcheditor(std::string edit) {
++#ifdef NDOS_X_HOST
++    (void)edit;
++    LOG_MSG("Desktop host launcher is unavailable in nDOS-X");
++#else
+     if (control->configfiles.size() && control->configfiles.front().size())
+         execlp(edit.c_str(),edit.c_str(),control->configfiles.front().c_str(),(char*) 0);
+     std::string path,file;
+@@ -7170,12 +7174,17 @@ static void launcheditor(std::string edit) {
+     //if you get here the launching failed!
+     printf("can't find editor(s) specified at the command line.\n");
+     exit(1);
++#endif
+ }
+ #if C_DEBUG
+ extern void DEBUG_ShutDown(Section * /*sec*/);
+ #endif
+ 
+ static void launchcaptures(std::string const& edit) {
++#ifdef NDOS_X_HOST
++    (void)edit;
++    LOG_MSG("Desktop host launcher is unavailable in nDOS-X");
++#else
+     std::string path,file;
+     struct stat cstat;
+     Section* t = control->GetSection("dosbox");
+@@ -7209,9 +7218,14 @@ static void launchcaptures(std::string const& edit) {
+         printf("can't find filemanager %s\n",edit.c_str());
+         exit(1);
+     }
++#endif
+ }
+ 
+ static void launchsaves(std::string const& edit) {
++#ifdef NDOS_X_HOST
++    (void)edit;
++    LOG_MSG("Desktop host launcher is unavailable in nDOS-X");
++#else
+     std::string path,file;
+     struct stat cstat;
+     file="SAVE";
+@@ -7239,6 +7253,7 @@ static void launchsaves(std::string const& edit) {
+         printf("can't find filemanager %s\n",edit.c_str());
+         exit(1);
+     }
++#endif
+ }
+ 
+ static void printconfiglocation() {

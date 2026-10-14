@@ -1,0 +1,79 @@
+diff --git a/include/dos_inc.h b/include/dos_inc.h
+index e253e0328..bdfd29bd9 100644
+--- a/include/dos_inc.h
++++ b/include/dos_inc.h
+@@ -129,7 +129,7 @@ struct DOS_Version {
+ };
+ 
+ #ifndef MACOSX
+-#if defined (__APPLE__)
++#if defined (__APPLE__) && !defined(NDOS_X_HOST)
+ #define MACOSX 1
+ #endif
+ #endif
+diff --git a/src/gui/sdl_gui.cpp b/src/gui/sdl_gui.cpp
+index e1c1ca023..5e1cea088 100644
+--- a/src/gui/sdl_gui.cpp
++++ b/src/gui/sdl_gui.cpp
+@@ -224,6 +224,8 @@ void RebootConfig(std::string filename, bool confirm=false) {
+         char LoadError[CCHMAXPATH] = {0};
+         RESULTCODES result;
+         DosExecPgm(LoadError, sizeof(LoadError), EXEC_ASYNC, (PSZ)para.c_str(), NULL, &result, (PSZ)exepath.c_str());
++#elif defined(NDOS_X_HOST)
++        return; // Relaunch is owned by the iOS host.
+ #else
+         system((exepath+" "+para+ " &").c_str());
+ #endif
+@@ -246,6 +248,8 @@ void RebootLanguage(std::string filename, bool confirm=false) {
+         char LoadError[CCHMAXPATH] = {0};
+         RESULTCODES result;
+         DosExecPgm(LoadError, sizeof(LoadError), EXEC_ASYNC, (PSZ)para.c_str(), NULL, &result, (PSZ)exepath.c_str());
++#elif defined(NDOS_X_HOST)
++        return; // Relaunch is owned by the iOS host.
+ #else
+         system((exepath+" "+para+ " &").c_str());
+ #endif
+diff --git a/src/hardware/parport/filelpt.cpp b/src/hardware/parport/filelpt.cpp
+index 1cf3e59e4..756d95c1e 100644
+--- a/src/hardware/parport/filelpt.cpp
++++ b/src/hardware/parport/filelpt.cpp
+@@ -172,6 +172,8 @@ void CFileLPT::doAction() {
+             action=action.substr(0, pos);
+         }
+         fail=(INT_PTR)ShellExecute(NULL, "open", action.c_str(), para.c_str(), NULL, shellhide?SW_HIDE:SW_NORMAL)<=32;
++#elif defined(NDOS_X_HOST)
++        fail=true; // iOS has no host command handlers.
+ #else
+         fail=system((action+" "+name).c_str())!=0;
+ #endif
+@@ -193,6 +195,8 @@ void CFileLPT::doAction() {
+                 action=action.substr(0, pos);
+             }
+             fail=(INT_PTR)ShellExecute(NULL, "open", action.c_str(), para.c_str(), NULL, shellhide?SW_HIDE:SW_NORMAL)<=32;
++#elif defined(NDOS_X_HOST)
++            fail=true; // iOS has no host command handlers.
+ #else
+             fail=system((action+" "+name).c_str())!=0;
+ #endif
+diff --git a/src/hardware/serialport/serialfile.cpp b/src/hardware/serialport/serialfile.cpp
+index 82786d89d..68571122c 100644
+--- a/src/hardware/serialport/serialfile.cpp
++++ b/src/hardware/serialport/serialfile.cpp
+@@ -87,6 +87,8 @@ void CSerialFile::doAction() {
+             action=action.substr(0, pos);
+         }
+         fail=(INT_PTR)ShellExecute(NULL, "open", action.c_str(), para.c_str(), NULL, shellhide?SW_HIDE:SW_NORMAL)<=32;
++#elif defined(NDOS_X_HOST)
++        fail=true; // iOS has no host command handlers.
+ #else
+         fail=system((action+" "+filename).c_str())!=0;
+ #endif
+@@ -108,6 +110,8 @@ void CSerialFile::doAction() {
+                 action=action.substr(0, pos);
+             }
+             fail=(INT_PTR)ShellExecute(NULL, "open", action.c_str(), para.c_str(), NULL, shellhide?SW_HIDE:SW_NORMAL)<=32;
++#elif defined(NDOS_X_HOST)
++            fail=true; // iOS has no host command handlers.
+ #else
+             fail=system((action+" "+filename).c_str())!=0;
+ #endif
