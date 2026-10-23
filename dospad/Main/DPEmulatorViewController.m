@@ -240,7 +240,7 @@ static struct {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.frame = CGRectMake(0, 0, 44, 44);
     [button setImage:[UIImage systemImageNamed:symbol withConfiguration:
-        [UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightRegular]]
+        [UIImageSymbolConfiguration configurationWithPointSize:23 weight:UIImageSymbolWeightRegular]]
            forState:UIControlStateNormal];
     button.tintColor = UIColor.lightGrayColor;
     button.accessibilityLabel = label;

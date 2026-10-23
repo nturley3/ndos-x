@@ -75,7 +75,7 @@
 {
     NSString *symbol = self.collapsed ? @"chevron.right.circle" : @"chevron.left.circle";
     [self.collapseButton setImage:[UIImage systemImageNamed:symbol withConfiguration:
-        [UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightRegular]]
+        [UIImageSymbolConfiguration configurationWithPointSize:23 weight:UIImageSymbolWeightRegular]]
                         forState:UIControlStateNormal];
     self.collapseButton.accessibilityLabel = self.collapsed ? @"Expand toolbar" : @"Collapse toolbar";
 }
