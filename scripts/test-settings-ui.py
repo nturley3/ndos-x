@@ -47,7 +47,7 @@ def main():
             "CLANG_ENABLE_OBJC_ARC": "YES", "SDKROOT": "iphonesimulator",
             "IPHONEOS_DEPLOYMENT_TARGET": "15.4", "TARGETED_DEVICE_FAMILY": "1,2",
             "HEADER_SEARCH_PATHS": [str(repo / path) for path in includes],
-            "OTHER_LDFLAGS": ["-framework", "UIKit"],
+            "OTHER_LDFLAGS": ["-framework", "UIKit", "-framework", "CoreGraphics"],
             "TEST_TARGET_NAME": "nDOS", "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/nDOS.app/nDOS",
             "BUNDLE_LOADER": "$(TEST_HOST)"
         }

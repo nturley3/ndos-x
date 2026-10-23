@@ -43,16 +43,16 @@ typedef NS_ENUM(NSInteger, DPFloatingInputType) {
 };
 
 static struct {
-	int type;
-	const char *onImageName;
-	const char *offImageName;
+    int type;
+    NSString *symbol;
+    NSString *label;
 } toggleButtonInfo [] = {
-	{TAG_INPUT_KEYBOARD,       "modekeyon.png",          "modekeyoff.png"    },
-	{TAG_INPUT_MOUSE_BUTTONS,  "mouseon.png",            "mouseoff.png"      },
-	{TAG_INPUT_GAMEPAD,        "modegamepadpressed.png", "modegamepad.png"   },
-	{TAG_INPUT_JOYSTICK,       "modejoypressed.png",     "modejoy.png"       },
-	{TAG_INPUT_NUMPAD,         "modenumpadpressed.png",  "modenumpad.png"    },
-	{TAG_INPUT_PIANO_KEYBOARD, "modepianopressed.png",   "modepiano.png"     },
+    {TAG_INPUT_KEYBOARD, @"keyboard", @"Keyboard"},
+    {TAG_INPUT_MOUSE_BUTTONS, @"computermouse", @"Mouse buttons"},
+    {TAG_INPUT_GAMEPAD, @"gamecontroller", @"Gamepad"},
+    {TAG_INPUT_JOYSTICK, @"l.joystick", @"Joystick"},
+    {TAG_INPUT_NUMPAD, @"number.square", @"Number pad"},
+    {TAG_INPUT_PIANO_KEYBOARD, @"pianokeys", @"Piano keyboard"},
 };
 #define NUM_BUTTON_INFO (sizeof(toggleButtonInfo)/sizeof(toggleButtonInfo[0]))
 
@@ -85,9 +85,10 @@ static struct {
     UILabel *labCycles;
     UILabel *labCycles2;
     FrameskipIndicator *fsIndicator;
-    FrameskipIndicator *fsIndicator2;
+    UILabel *labFrameskip2;
 	
     FloatPanel *fullscreenPanel;
+    BOOL _toolbarCollapsed;
     UIDocumentPickerViewController *_guardedImageMountPicker;
     
     BOOL _settingsPresented;
@@ -234,73 +235,77 @@ static struct {
 	}
 }
 
+- (UIButton *)toolbarButton:(NSString *)symbol label:(NSString *)label action:(SEL)action
+{
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.frame = CGRectMake(0, 0, 44, 44);
+    [button setImage:[UIImage systemImageNamed:symbol withConfiguration:
+        [UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightRegular]]
+           forState:UIControlStateNormal];
+    button.tintColor = UIColor.lightGrayColor;
+    button.accessibilityLabel = label;
+    button.layer.shadowColor = UIColor.blackColor.CGColor;
+    button.layer.shadowOpacity = 0.65;
+    button.layer.shadowRadius = 1.5;
+    button.layer.shadowOffset = CGSizeMake(0, 1);
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return button;
+}
+
 - (void)refreshFullscreenPanel
 {
-    NSMutableArray *items = [NSMutableArray arrayWithCapacity:16];
-    
-    UIImageView *cpuWindow = [[UIImageView alloc] initWithFrame:CGRectMake(0,0,48,24)];
-    cpuWindow.image = [UIImage imageNamed:@"cpuwindow.png"];
-    
-    if (labCycles2 == nil)
-    {
-        labCycles2 = [[UILabel alloc] initWithFrame:CGRectMake(1,8,43,12)];
-        labCycles2.backgroundColor = [UIColor clearColor];
-        labCycles2.textColor=[UIColor colorWithRed:74/255.0 green:1 blue:55/255.0 alpha:1];
-        labCycles2.font=[UIFont fontWithName:@"DBLCDTempBlack" size:13];
-        labCycles2.text=[self currentCycles];
-        labCycles2.textAlignment= NSTextAlignmentCenter;
-        labCycles2.baselineAdjustment=UIBaselineAdjustmentAlignCenters;
-        fsIndicator2 = [FrameskipIndicator alloc];
-        fsIndicator2 = [fsIndicator2 initWithFrame:CGRectMake(labCycles2.frame.size.width-8,2,4,labCycles2.frame.size.height-4)
-                                             style:FrameskipIndicatorStyleVertical];
-        fsIndicator2.count = [self currentFrameskip];
-        [labCycles2 addSubview:fsIndicator2];
+    if (!fullscreenPanel) return;
+    NSMutableArray *items = [NSMutableArray array];
+    [items addObject:[self toolbarButton:@"arrow.up.left.and.arrow.down.right" label:@"Toggle screen size" action:@selector(toggleScreenSize)]];
+
+    UIView *readout = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 90, 44)];
+    labCycles2 = [[UILabel alloc] initWithFrame:CGRectMake(0, 2, 90, 23)];
+    labCycles2.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
+    labCycles2.text = [self currentCycles];
+    labFrameskip2 = [[UILabel alloc] initWithFrame:CGRectMake(0, 25, 90, 17)];
+    labFrameskip2.font = [UIFont systemFontOfSize:10];
+    labFrameskip2.text = [NSString stringWithFormat:@"FS %d", [self currentFrameskip]];
+    for (UILabel *label in @[labCycles2, labFrameskip2]) {
+        label.textColor = UIColor.lightGrayColor;
+        label.textAlignment = NSTextAlignmentCenter;
+        label.adjustsFontSizeToFitWidth = YES;
+        label.layer.shadowColor = UIColor.blackColor.CGColor;
+        label.layer.shadowOpacity = 0.65;
+        label.layer.shadowRadius = 1.5;
+        label.layer.shadowOffset = CGSizeMake(0, 1);
+        [readout addSubview:label];
     }
-    [cpuWindow addSubview:labCycles2];
-    [items addObject:cpuWindow];
+    labCycles2.accessibilityLabel = @"CPU cycles";
+    labFrameskip2.accessibilityLabel = @"Frameskip";
+    labCycles2.accessibilityValue = labCycles2.text;
+    labFrameskip2.accessibilityValue = labFrameskip2.text;
+    [items addObject:readout];
 
     for (int i = 0; i < NUM_BUTTON_INFO; i++) {
-		if ([self allowsInput:toggleButtonInfo[i].type]) {
-            UIButton *btn = [[UIButton alloc] initWithFrame:CGRectMake(0,0,48,24)];
-            NSString *on = [NSString stringWithUTF8String:toggleButtonInfo[i].onImageName];
-            NSString *off = [NSString stringWithUTF8String:toggleButtonInfo[i].offImageName];
+        if ([self allowsInput:toggleButtonInfo[i].type]) {
+            UIButton *button = [self toolbarButton:toggleButtonInfo[i].symbol label:toggleButtonInfo[i].label action:@selector(toggleInput:)];
             BOOL active = [self findInputView:toggleButtonInfo[i].type] != nil;
-            [btn setImage:[UIImage imageNamed:active?on:off] forState:UIControlStateNormal];
-            [btn setImage:[UIImage imageNamed:on] forState:UIControlStateHighlighted];
-            [btn setTag:toggleButtonInfo[i].type];
-            [btn addTarget:self action:@selector(toggleInput:) forControlEvents:UIControlEventTouchUpInside];
-            [items addObject:btn];
+            button.tintColor = active ? self.view.tintColor : UIColor.lightGrayColor;
+            button.accessibilityTraits |= active ? UIAccessibilityTraitSelected : 0;
+            button.tag = toggleButtonInfo[i].type;
+            [items addObject:button];
         }
     }
-        
-    UIButton *btnOpen = [[UIButton alloc] initWithFrame:CGRectMake(0,0,48,24)];
-    [btnOpen setImage:[UIImage imageNamed:@"open-image"] forState:UIControlStateNormal];
-    btnOpen.accessibilityLabel = NSLocalizedString(@"Open disk image", nil);
-    [btnOpen addTarget:self action:@selector(openImageMount:) forControlEvents:UIControlEventTouchUpInside];
 #ifndef NDOS_X_HOST
-    [items addObject:btnOpen];
+    [items addObject:[self toolbarButton:@"opticaldisc" label:@"Open disk image" action:@selector(openImageMount:)]];
 #endif
-
-    UIButton *btnOption = [[UIButton alloc] initWithFrame:CGRectMake(380,0,48,24)];
-    [btnOption setImage:[UIImage imageNamed:@"options.png"] forState:UIControlStateNormal];
-    btnOption.accessibilityLabel = NSLocalizedString(@"Settings", nil);
-    [btnOption addTarget:self action:@selector(showOption:) forControlEvents:UIControlEventTouchUpInside];
-    [items addObject:btnOption];
-    
-    UIButton *btnRemap = [[UIButton alloc] initWithFrame:CGRectMake(340,0,20,24)];
-    [btnRemap setImage:[UIImage imageNamed:@"ic_bluetooth_white_18pt"] forState:UIControlStateNormal];
-    [btnRemap addTarget:self action:@selector(openMfiMapper:) forControlEvents:UIControlEventTouchUpInside];
+    [items addObject:[self toolbarButton:@"gearshape" label:@"Settings" action:@selector(showOption:)]];
 #ifndef NDOS_X_HOST
-    [items addObject:btnRemap];
+    [items addObject:[self toolbarButton:@"gamecontroller" label:@"Controller mapping" action:@selector(openMfiMapper:)]];
 #endif
-    
     [fullscreenPanel setItems:items];
 }
 
 -(void)updateFrameskip:(NSNumber*)skip
 {
     fsIndicator.count=[skip intValue];
-    fsIndicator2.count=[skip intValue];
+    labFrameskip2.text = [NSString stringWithFormat:@"FS %d", skip.intValue];
+    labFrameskip2.accessibilityValue = labFrameskip2.text;
     if (_currentScene && !_currentScene.isPortrait)
     {
         [fullscreenPanel showContent];
@@ -311,6 +316,7 @@ static struct {
 {
     labCycles.text=title;
     labCycles2.text=title;
+    labCycles2.accessibilityValue = title;
     if (_currentScene && !_currentScene.isPortrait)
     {
         [fullscreenPanel showContent];    
@@ -506,26 +512,16 @@ static struct {
         {
             frame = [self landscapeToolbarFrame:rootRect];
 
-            //MARK: Fullscreen/scale panel button
-            UIButton *btnExitFS;
             fullscreenPanel = [[FloatPanel alloc] initWithFrame:frame];
-            fullscreenPanel.pinAction = ^{ [[DPSettings shared] toggleToolbarAutoHide]; };
+            __weak DPEmulatorViewController *weakSelf = self;
+            fullscreenPanel.visibilityChanged = ^(BOOL collapsed) {
+                DPEmulatorViewController *controller = weakSelf;
+                if (controller) controller->_toolbarCollapsed = collapsed;
+            };
             [fullscreenPanel applyAutoHideDelay:[DPSettings shared].toolbarAutoHideDelay];
-            if ([UIDevice.currentDevice.model isEqual:@"iPad"]) {
-                btnExitFS = [[UIButton alloc] initWithFrame:CGRectMake(0,0,72,36)];
-                btnExitFS.center=CGPointMake(63, 18);
-                [btnExitFS setImage:[UIImage imageNamed:@"exitfull~ipad"] forState:UIControlStateNormal];
-            } else {
-                btnExitFS = [[UIButton alloc] initWithFrame:CGRectMake(0,0,48,24)];
-                btnExitFS.center=CGPointMake(44, 13);
-                [btnExitFS setImage:[UIImage imageNamed:@"exitfull.png"] forState:UIControlStateNormal];
-            }
-            
-            [btnExitFS addTarget:self action:@selector(toggleScreenSize) forControlEvents:UIControlEventTouchUpInside];
-            [fullscreenPanel.contentView addSubview:btnExitFS];
             [sceneContainer addSubview:fullscreenPanel];
             [self refreshFullscreenPanel];
-            [fullscreenPanel showContent];
+            [fullscreenPanel setCollapsed:_toolbarCollapsed animated:NO];
         }
         else if ([type isEqualToString:@"image"])
         {
@@ -624,9 +620,10 @@ static struct {
 
 - (CGRect)landscapeToolbarFrame:(CGRect)bounds
 {
-    CGSize size = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? CGSizeMake(700, 47) : CGSizeMake(480, 32);
-    CGFloat y = [DPSettings shared].landbarToggleBottomScreen ? bounds.size.height - size.height / 2 : 0;
-    return CGRectMake((bounds.size.width - size.width) / 2, y, size.width, size.height);
+    CGFloat maximumWidth = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? 700 : 480;
+    CGFloat width = MIN(maximumWidth, bounds.size.width);
+    CGFloat y = [DPSettings shared].landbarToggleBottomScreen ? MAX(0, bounds.size.height - 44) : 0;
+    return CGRectMake((bounds.size.width - width) / 2, y, width, 44);
 }
 
 - (void)didSettingsChanged:(NSNotification *)note

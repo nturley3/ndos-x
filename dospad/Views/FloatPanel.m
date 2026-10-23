@@ -17,254 +17,178 @@
  */
 
 #import "FloatPanel.h"
-#import "Common.h"
 
-@interface SmoothBar : UIView
+// Empty space belongs to the emulator, even when the row can scroll.
+@interface ToolbarScrollView : UIScrollView
+@end
+@implementation ToolbarScrollView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
-    
+    UIView *hit = [super hitTest:point withEvent:event];
+    return hit == self ? nil : hit;
 }
 @end
 
-@implementation SmoothBar
-
-- (id)initWithFrame:(CGRect)frame {
-    if ((self = [super initWithFrame:frame])) {
-        // Initialization code
-        self.backgroundColor = [UIColor clearColor];
-    }
-    return self;
-}
-
-- (void)drawRect:(CGRect)rect
-{
-    UIImage *image = ([UIDevice.currentDevice.model isEqual:@"iPad"] ? [UIImage imageNamed:@"landbarblank~iPad"] :
-                      [UIImage imageNamed:@"landbarblank"]);
-    
-    [image drawInRect:rect];
-    
-    /*
-    CGContextRef c = UIGraphicsGetCurrentContext();
-    [[UIColor grayColor] set];
-    CGContextMoveToPoint(c, 0, 0);
-    CGContextAddLineToPoint(c, rect.size.width, 0);
-    CGContextAddLineToPoint(c, rect.size.width-rect.size.height, rect.size.height);
-    CGContextAddLineToPoint(c, rect.size.height, rect.size.height);
-    CGContextFillPath(c);*/
-}
-
+@interface FloatPanel ()
+@property (nonatomic, strong) ToolbarScrollView *controls;
+@property (nonatomic, strong) NSArray<UIView *> *items;
+@property (nonatomic, readwrite) UIButton *collapseButton;
+@property (nonatomic, readwrite, getter=isCollapsed) BOOL collapsed;
 @end
 
 @implementation FloatPanel
-@synthesize contentView;
-@synthesize autoHide;
-@synthesize autoHideInterval;
-
-- (id)initWithFrame:(CGRect)frame 
+- (instancetype)initWithFrame:(CGRect)frame
 {
-    if ((self = [super initWithFrame:frame])) 
-    {
-        self.backgroundColor=[UIColor clearColor];
-        self.clipsToBounds=YES;
-        // Initialization code
-        contentView = [[SmoothBar alloc] initWithFrame:self.bounds];
-        [self addSubview:contentView];
-        CGPoint pt = contentView.center;
-        contentView.center = CGPointMake(pt.x, pt.y - contentView.frame.size.height);
-        autoHide = YES;
-        
-        if ([UIDevice.currentDevice.model isEqual:@"iPad"])
-        {
-            btnAutoHide = [[UIButton alloc] initWithFrame:CGRectMake(0,0,48,24)];
-            [btnAutoHide setImage:[UIImage imageNamed:@"unsticky~ipad"] forState:UIControlStateNormal];
-            [btnAutoHide addTarget:self
-                            action:@selector(toggleAutoHide) 
-                  forControlEvents:UIControlEventTouchUpInside];
-            btnAutoHide.center = CGPointMake(635, 18);
-            [contentView addSubview:btnAutoHide];            
-        }
-        else
-        {
-            btnAutoHide = [[UIButton alloc] initWithFrame:CGRectMake(0,0,48,24)];
-            [btnAutoHide setImage:[UIImage imageNamed:@"unsticky"] forState:UIControlStateNormal];
-            [btnAutoHide addTarget:self
-                            action:@selector(toggleAutoHide) 
-                  forControlEvents:UIControlEventTouchUpInside];
-            btnAutoHide.center = CGPointMake(432, 12);
-            [contentView addSubview:btnAutoHide];
-        }
-        
-        // Seconds before hiding the control bar
-        autoHideInterval = 3;
+    if ((self = [super initWithFrame:frame])) {
+        self.backgroundColor = UIColor.clearColor;
+        self.clipsToBounds = YES;
+        _autoHide = YES;
+        _autoHideInterval = 3;
+        _controls = [[ToolbarScrollView alloc] initWithFrame:CGRectZero];
+        _controls.showsHorizontalScrollIndicator = NO;
+        _controls.delaysContentTouches = NO;
+        [self addSubview:_controls];
+        _collapseButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _collapseButton.tintColor = UIColor.lightGrayColor;
+        _collapseButton.layer.shadowColor = UIColor.blackColor.CGColor;
+        _collapseButton.layer.shadowOpacity = 0.65;
+        _collapseButton.layer.shadowRadius = 1.5;
+        _collapseButton.layer.shadowOffset = CGSizeMake(0, 1);
+        [_collapseButton addTarget:self action:@selector(toggleCollapsed) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:_collapseButton];
+        [self updateArrow];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reduceMotionChanged:)
+            name:UIAccessibilityReduceMotionStatusDidChangeNotification object:nil];
     }
     return self;
 }
-             
-- (void)toggleAutoHide
+
+- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+- (BOOL)reduceMotionEnabled { return UIAccessibilityIsReduceMotionEnabled(); }
+- (void)reduceMotionChanged:(NSNotification *)notification
 {
-    if (self.pinAction) self.pinAction();
+    [self setCollapsed:self.collapsed animated:NO];
+}
+- (UIView *)contentView { return self.controls; }
+
+- (void)updateArrow
+{
+    NSString *symbol = self.collapsed ? @"chevron.right.circle" : @"chevron.left.circle";
+    [self.collapseButton setImage:[UIImage systemImageNamed:symbol withConfiguration:
+        [UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightRegular]]
+                        forState:UIControlStateNormal];
+    self.collapseButton.accessibilityLabel = self.collapsed ? @"Expand toolbar" : @"Collapse toolbar";
 }
 
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    CGFloat available = MAX(0, self.bounds.size.width - 44);
+    self.collapseButton.frame = CGRectMake(available, 0, 44, 44);
+    // Set bounds/center rather than frame: the controls may be transformed during animation.
+    self.controls.bounds = (CGRect){self.controls.bounds.origin, CGSizeMake(available, 44)};
+    self.controls.center = CGPointMake(available / 2, 22);
+    CGFloat minimum = 0;
+    for (UIView *item in self.items) minimum += MAX(44, item.bounds.size.width);
+    CGFloat gap = self.items.count ? MAX(0, (available - minimum) / self.items.count) : 0;
+    CGFloat x = 0;
+    for (UIView *item in self.items) {
+        CGFloat width = MAX(44, item.bounds.size.width);
+        item.frame = CGRectMake(x, 0, width, 44);
+        x += width + gap;
+    }
+    self.controls.contentSize = CGSizeMake(MAX(available, x), 44);
+    self.controls.scrollEnabled = minimum > available;
+    if (self.collapsed && ![self reduceMotionEnabled])
+        self.controls.transform = CGAffineTransformMakeTranslation(available / 2 + 22, 0);
+}
+
+- (void)setItems:(NSArray<UIView *> *)items
+{
+    for (UIView *item in self.items) {
+        if ([item isKindOfClass:UIControl.class])
+            [(UIControl *)item removeTarget:self action:@selector(resetAutoHideTimer) forControlEvents:UIControlEventTouchUpInside];
+        [item removeFromSuperview];
+    }
+    _items = [items copy];
+    for (UIView *item in items) {
+        [self.controls addSubview:item];
+        if ([item isKindOfClass:UIControl.class])
+            [(UIControl *)item addTarget:self action:@selector(resetAutoHideTimer) forControlEvents:UIControlEventTouchUpInside];
+    }
+    [self setNeedsLayout];
+    // Input toggles rebuild the row during their action; restart even if the old
+    // control is removed before its touch-up timer callback can run.
+    [self resetAutoHideTimer];
+}
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
+{
+    UIView *hit = [super hitTest:point withEvent:event];
+    return hit == self ? nil : hit;
+}
+
+- (void)toggleCollapsed { [self setCollapsed:!self.collapsed animated:YES]; }
+- (void)hideContent { [self setCollapsed:YES animated:YES]; }
+- (void)showContent { [self setCollapsed:NO animated:YES]; }
+
+- (void)setCollapsed:(BOOL)collapsed animated:(BOOL)animated
+{
+    [self layoutIfNeeded];
+    BOOL changed = _collapsed != collapsed;
+    _collapsed = collapsed;
+    [self updateArrow];
+    self.controls.userInteractionEnabled = !collapsed;
+    self.controls.accessibilityElementsHidden = collapsed;
+    CGAffineTransform transform = collapsed && ![self reduceMotionEnabled]
+        ? CGAffineTransformMakeTranslation(self.controls.bounds.size.width / 2 + 22, 0) : CGAffineTransformIdentity;
+    void (^changes)(void) = ^{
+        self.controls.alpha = collapsed ? 0 : 1;
+        self.controls.transform = transform;
+    };
+    if (animated && changed) {
+        [UIView animateWithDuration:0.3 delay:0
+            options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionCurveEaseInOut
+            animations:changes completion:nil];
+    } else if (!animated) {
+        [self.controls.layer removeAllAnimations];
+        changes();
+    }
+    [self resetAutoHideTimer];
+    if (changed && self.visibilityChanged) self.visibilityChanged(collapsed);
+}
 
 - (void)resetAutoHideTimer
 {
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideContent) object:nil];
-    if (autoHide && isContentShowing)
-    {
-        [self performSelector:@selector(hideContent) withObject:nil afterDelay:autoHideInterval];
-    }
+    if (self.autoHide && !self.collapsed && self.superview)
+        [self performSelector:@selector(hideContent) withObject:nil afterDelay:self.autoHideInterval];
 }
-
 - (void)applyAutoHideDelay:(NSTimeInterval)delay
 {
-    if (delay > 0) autoHideInterval = delay;
+    if (delay > 0) _autoHideInterval = delay;
     self.autoHide = delay > 0;
 }
-
-- (void)setAutoHideInterval:(float)interval
+- (void)setAutoHide:(BOOL)autoHide
 {
-    autoHideInterval = interval;
+    _autoHide = autoHide;
     [self resetAutoHideTimer];
 }
-
+- (void)setAutoHideInterval:(float)interval
+{
+    _autoHideInterval = interval;
+    [self resetAutoHideTimer];
+}
 - (void)willMoveToSuperview:(UIView *)newSuperview
 {
     [super willMoveToSuperview:newSuperview];
     if (!newSuperview)
         [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideContent) object:nil];
 }
-
 - (void)didMoveToWindow
 {
     [super didMoveToWindow];
-    if (!self.window)
-        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideContent) object:nil];
+    if (self.window) [self resetAutoHideTimer];
+    else [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideContent) object:nil];
 }
-
-- (void)setItems:(NSArray*)itemArray
-{
-    float marginx = ([UIDevice.currentDevice.model isEqual:@"iPad"] ? 95 : 66);
-    float marginy_bot = ([UIDevice.currentDevice.model isEqual:@"iPad"] ? 10 : 7);
- 
-    if (!itemArray.count) return;
-    float usableWidth = contentView.frame.size.width-marginx*2;
-    float w = usableWidth / itemArray.count;
-    float h = contentView.frame.size.height - marginy_bot;
-    BOOL compact = NO;
-    for (UIView *item in itemArray) {
-        if (item.bounds.size.width > w) compact = YES;
-    }
-    // The first item is the CPU display; retain its internal label geometry.
-    float indicatorWidth = ((UIView *)itemArray.firstObject).bounds.size.width;
-    float buttonSlot = itemArray.count > 1
-        ? (usableWidth - indicatorWidth) / (itemArray.count - 1) : usableWidth;
- 
-    if (items != nil)
-    {
-        for (UIView *v in items) 
-            [v removeFromSuperview];
-    }
-    items = itemArray;
-    
-    for (int i = 0; i < [itemArray count]; i++)
-    {
-        UIView * v = [itemArray objectAtIndex:i];
-        if (compact && i > 0) {
-            CGRect bounds = v.bounds;
-            bounds.size.width = MIN(bounds.size.width, buttonSlot);
-            v.bounds = bounds;
-            if ([v isKindOfClass:UIButton.class]) {
-                UIButton *button = (UIButton *)v;
-                for (NSNumber *state in @[@(UIControlStateNormal), @(UIControlStateHighlighted)]) {
-                    UIImage *image = [button imageForState:state.unsignedIntegerValue];
-                    if (!image) continue;
-                    CGFloat scale = MIN(1, MIN(bounds.size.width / image.size.width,
-                                               bounds.size.height / image.size.height));
-                    if (scale < 1) {
-                        CGSize size = CGSizeMake(image.size.width * scale, image.size.height * scale);
-                        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size];
-                        UIImage *fitted = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-                            [image drawInRect:(CGRect){CGPointZero, size}];
-                        }];
-                        [button setImage:fitted forState:state.unsignedIntegerValue];
-                    }
-                }
-            }
-        }
-        CGFloat centerX = marginx+w*i+w/2;
-        if (compact) {
-            centerX = i == 0 ? marginx+indicatorWidth/2
-                : marginx+indicatorWidth+buttonSlot*(i-1)+buttonSlot/2;
-        }
-        v.center = CGPointMake(centerX,h/2);
-        [contentView addSubview:v];
-        if ([v isKindOfClass:[UIControl class]])
-        {
-//            [(UIControl*)v addTarget:self action:@selector(resetAutoHideTimer)
-//                    forControlEvents:UIControlEventTouchDown];
-            [(UIControl*)v addTarget:self action:@selector(resetAutoHideTimer)
-                    forControlEvents:UIControlEventTouchUpInside];
-        }
-    }
-}
-
-- (void)setAutoHide:(BOOL)b
-{
-    autoHide = b;
-    if (b)
-    {
-        [btnAutoHide setImage:[UIImage imageNamed:[UIDevice.currentDevice.model isEqual:@"iPad"] ? @"unsticky~ipad.png" : @"unsticky.png"]
-                     forState:UIControlStateNormal];
-        btnAutoHide.accessibilityLabel = @"Pin toolbar";
-        [self resetAutoHideTimer];
-    }
-    else
-    {
-        [btnAutoHide setImage:[UIImage imageNamed:[UIDevice.currentDevice.model isEqual:@"iPad"] ? @"sticky~ipad.png" : @"sticky.png"]
-                     forState:UIControlStateNormal]; 
-        btnAutoHide.accessibilityLabel = @"Unpin toolbar";
-        [self showContent];
-    }
-}
-
-// Hide landbar content
-- (void)hideContent
-{
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideContent) object:nil];
-    if (!isContentShowing)
-        return;
-    isContentShowing = NO;
-    
-    CGPoint ptOrig = contentView.center;
-    [UIView animateWithDuration:0.5 animations:^{
-        self->contentView.center = CGPointMake(ptOrig.x, ptOrig.y - self->contentView.frame.size.height);
-    }];
-}
-
-// Show landbar content
-- (void)showContent
-{
-    if (!isContentShowing)
-    {
-        isContentShowing = YES;
-        CGPoint ptOrig = contentView.center;
-        [UIView animateWithDuration:0.5 animations:^{
-            self->contentView.center = CGPointMake(ptOrig.x, ptOrig.y + self->contentView.frame.size.height);
-        }];
-    }
-    [self resetAutoHideTimer];
-}
-
-- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event
-{
-    [self showContent];
-}
-
-/*
-// Only override drawRect: if you perform custom drawing.
-// An empty implementation adversely affects performance during animation.
-- (void)drawRect:(CGRect)rect {
-    // Drawing code
-}
-*/
-
 @end
