@@ -19,12 +19,25 @@ extern void dospad_resume(void);
 - (void)refreshFullscreenPanel;
 @end
 
+@interface FloatPanel (InteractionTesting)
+- (void)pointerHoverChanged:(UIHoverGestureRecognizer *)gesture;
+@end
+
+@interface TestHoverGesture : UIHoverGestureRecognizer
+@property (nonatomic) UIGestureRecognizerState simulatedState;
+@end
+@implementation TestHoverGesture
+- (UIGestureRecognizerState)state { return self.simulatedState; }
+@end
+
 @interface TestFloatPanel : FloatPanel
 @property (nonatomic) BOOL reduceMotion;
+@property (nonatomic) BOOL voiceOverEnabled;
 @property (nonatomic) NSUInteger hideCalls;
 @end
 @implementation TestFloatPanel
 - (BOOL)reduceMotionEnabled { return self.reduceMotion; }
+- (BOOL)voiceOverRunning { return self.voiceOverEnabled; }
 - (void)hideContent
 {
     self.hideCalls++;
@@ -100,6 +113,125 @@ extern void dospad_resume(void);
         [UIView setAnimationsEnabled:animations];
     }
 }
+- (void)testToolbarWaitsForReleaseAndCancellation
+{
+    UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 700, 44)];
+    TestFloatPanel *panel = [[TestFloatPanel alloc] initWithFrame:container.bounds];
+    [container addSubview:panel];
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    [panel setItems:@[button]];
+    @try {
+        for (NSNumber *event in @[@(UIControlEventTouchUpInside), @(UIControlEventTouchUpOutside), @(UIControlEventTouchCancel)]) {
+            [panel setCollapsed:NO animated:NO];
+            [panel applyAutoHideDelay:0.3];
+            [self waitSeconds:0.2];
+            [button sendActionsForControlEvents:UIControlEventTouchDown];
+            [self waitSeconds:0.4];
+            XCTAssertFalse(panel.isCollapsed); // A press can outlive the original timeout.
+            [panel setItems:@[button]]; // Updating the same row must not end the press.
+            [self waitSeconds:0.4];
+            XCTAssertFalse(panel.isCollapsed);
+            [button sendActionsForControlEvents:event.unsignedIntegerValue];
+            [self waitSeconds:0.15];
+            XCTAssertFalse(panel.isCollapsed); // Restart with the full delay after release.
+            [self waitSeconds:0.25];
+            XCTAssertTrue(panel.isCollapsed);
+        }
+        [panel setCollapsed:NO animated:NO];
+        [button sendActionsForControlEvents:UIControlEventTouchDown];
+        [panel setItems:@[]]; // Removing a pressed control must release its hold.
+        [self waitSeconds:0.4];
+        XCTAssertTrue(panel.isCollapsed);
+    } @finally { [panel removeFromSuperview]; }
+}
+
+- (void)testToolbarWaitsForScrollingAndHover
+{
+    UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 250, 44)];
+    TestFloatPanel *panel = [[TestFloatPanel alloc] initWithFrame:container.bounds];
+    [container addSubview:panel];
+    NSMutableArray *buttons = [NSMutableArray array];
+    for (int i = 0; i < 7; i++) [buttons addObject:[UIButton buttonWithType:UIButtonTypeSystem]];
+    [panel setItems:buttons];
+    [panel applyAutoHideDelay:0.3];
+    UIScrollView *row = (UIScrollView *)panel.contentView;
+    TestHoverGesture *hover = [[TestHoverGesture alloc] init];
+    @try {
+        [row.delegate scrollViewWillBeginDragging:row];
+        [self waitSeconds:0.4];
+        XCTAssertFalse(panel.isCollapsed);
+        [row.delegate scrollViewDidEndDragging:row willDecelerate:YES];
+        [self waitSeconds:0.4];
+        XCTAssertFalse(panel.isCollapsed); // Momentum scrolling is still interaction.
+        [row.delegate scrollViewDidEndDecelerating:row];
+        [self waitSeconds:0.15];
+        XCTAssertFalse(panel.isCollapsed);
+        [self waitSeconds:0.25];
+        XCTAssertTrue(panel.isCollapsed);
+        [panel setCollapsed:NO animated:NO];
+        [row.delegate scrollViewWillBeginDragging:row];
+        hover.simulatedState = UIGestureRecognizerStateBegan;
+        [panel pointerHoverChanged:hover];
+        [row.delegate scrollViewDidEndDragging:row willDecelerate:NO];
+        [self waitSeconds:0.4];
+        XCTAssertFalse(panel.isCollapsed); // Ending one interaction cannot end another.
+        hover.simulatedState = UIGestureRecognizerStateEnded;
+        [panel pointerHoverChanged:hover];
+        [self waitSeconds:0.15];
+        XCTAssertFalse(panel.isCollapsed);
+        [self waitSeconds:0.25];
+        XCTAssertTrue(panel.isCollapsed);
+    } @finally { [panel removeFromSuperview]; }
+}
+
+- (void)testToolbarVoiceOverAndManualCollapse
+{
+    UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 700, 44)];
+    TestFloatPanel *panel = [[TestFloatPanel alloc] initWithFrame:container.bounds];
+    [container addSubview:panel];
+    [panel applyAutoHideDelay:0.3];
+    @try {
+        panel.voiceOverEnabled = YES;
+        [NSNotificationCenter.defaultCenter postNotificationName:UIAccessibilityVoiceOverStatusDidChangeNotification object:nil];
+        [self waitSeconds:0.4];
+        XCTAssertFalse(panel.isCollapsed);
+        [panel.collapseButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+        XCTAssertTrue(panel.isCollapsed); // Assistive technology never blocks manual collapse.
+        [panel.collapseButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+        [self waitSeconds:0.4];
+        XCTAssertFalse(panel.isCollapsed);
+        panel.voiceOverEnabled = NO;
+        [NSNotificationCenter.defaultCenter postNotificationName:UIAccessibilityVoiceOverStatusDidChangeNotification object:nil];
+        [self waitSeconds:0.15];
+        XCTAssertFalse(panel.isCollapsed);
+        [self waitSeconds:0.25];
+        XCTAssertTrue(panel.isCollapsed);
+        [panel applyAutoHideDelay:0];
+        [panel setCollapsed:NO animated:NO];
+        [self waitSeconds:0.4];
+        XCTAssertFalse(panel.isCollapsed);
+    } @finally { [panel removeFromSuperview]; }
+}
+
+- (void)testToolbarChevronDirections
+{
+    FloatPanel *panel = [[FloatPanel alloc] initWithFrame:CGRectMake(0, 0, 700, 44)];
+    UIImageSymbolConfiguration *configuration = [UIImageSymbolConfiguration configurationWithPointSize:23 weight:UIImageSymbolWeightRegular];
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(44, 44)];
+    NSData *(^pixels)(UIImage *) = ^NSData *(UIImage *image) {
+        UIImage *rendered = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+            [image drawAtPoint:CGPointZero];
+        }];
+        return UIImagePNGRepresentation(rendered);
+    };
+    [panel setCollapsed:NO animated:NO];
+    UIImage *collapse = [UIImage systemImageNamed:@"chevron.right.circle" withConfiguration:configuration];
+    XCTAssertEqualObjects(pixels([panel.collapseButton imageForState:UIControlStateNormal]), pixels(collapse));
+    [panel setCollapsed:YES animated:NO];
+    UIImage *expand = [UIImage systemImageNamed:@"chevron.left.circle" withConfiguration:configuration];
+    XCTAssertEqualObjects(pixels([panel.collapseButton imageForState:UIControlStateNormal]), pixels(expand));
+}
+
 - (void)testToolbarHitTargetsAndNarrowLayout
 {
     for (NSNumber *width in @[@700, @480, @250]) {
@@ -184,15 +316,20 @@ extern void dospad_resume(void);
     UIView *keyboard = [[UIView alloc] init];
     keyboard.tag = 1001; // TAG_INPUT_KEYBOARD
     [root addSubview:keyboard];
+    UIButton *original = [panel.contentView viewWithTag:1001];
+    NSArray *originalItems = [panel.contentView.subviews copy];
     [controller refreshFullscreenPanel];
     [panel layoutIfNeeded];
     UIButton *button = [panel.contentView viewWithTag:1001];
+    XCTAssertEqual(button, original);
+    for (UIView *item in originalItems) XCTAssertEqual(item.superview, panel.contentView);
     XCTAssertEqualObjects(button.tintColor, root.tintColor);
     XCTAssertTrue((button.accessibilityTraits & UIAccessibilityTraitSelected) != 0);
     [keyboard removeFromSuperview];
     [controller refreshFullscreenPanel];
     [panel layoutIfNeeded];
     button = [panel.contentView viewWithTag:1001];
+    XCTAssertEqual(button, original);
     XCTAssertEqualObjects(button.tintColor, UIColor.lightGrayColor);
     XCTAssertFalse((button.accessibilityTraits & UIAccessibilityTraitSelected) != 0);
     [panel removeFromSuperview];

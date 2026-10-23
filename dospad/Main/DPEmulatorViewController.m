@@ -89,6 +89,8 @@ static struct {
 	
     FloatPanel *fullscreenPanel;
     BOOL _toolbarCollapsed;
+    NSMutableDictionary<NSString *, UIButton *> *_toolbarButtons;
+    UIView *_toolbarReadout;
     UIDocumentPickerViewController *_guardedImageMountPicker;
     
     BOOL _settingsPresented;
@@ -237,7 +239,11 @@ static struct {
 
 - (UIButton *)toolbarButton:(NSString *)symbol label:(NSString *)label action:(SEL)action
 {
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    NSString *key = [NSString stringWithFormat:@"%@/%@", symbol, NSStringFromSelector(action)];
+    UIButton *button = _toolbarButtons[key];
+    if (button) return button;
+    button = [UIButton buttonWithType:UIButtonTypeSystem];
+    _toolbarButtons[key] = button;
     button.frame = CGRectMake(0, 0, 44, 44);
     [button setImage:[UIImage systemImageNamed:symbol withConfiguration:
         [UIImageSymbolConfiguration configurationWithPointSize:23 weight:UIImageSymbolWeightRegular]]
@@ -258,35 +264,39 @@ static struct {
     NSMutableArray *items = [NSMutableArray array];
     [items addObject:[self toolbarButton:@"arrow.up.left.and.arrow.down.right" label:@"Toggle screen size" action:@selector(toggleScreenSize)]];
 
-    UIView *readout = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 90, 44)];
-    labCycles2 = [[UILabel alloc] initWithFrame:CGRectMake(0, 2, 90, 23)];
-    labCycles2.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
-    labCycles2.text = [self currentCycles];
-    labFrameskip2 = [[UILabel alloc] initWithFrame:CGRectMake(0, 25, 90, 17)];
-    labFrameskip2.font = [UIFont systemFontOfSize:10];
-    labFrameskip2.text = [NSString stringWithFormat:@"FS %d", [self currentFrameskip]];
-    for (UILabel *label in @[labCycles2, labFrameskip2]) {
-        label.textColor = UIColor.lightGrayColor;
-        label.textAlignment = NSTextAlignmentCenter;
-        label.adjustsFontSizeToFitWidth = YES;
-        label.layer.shadowColor = UIColor.blackColor.CGColor;
-        label.layer.shadowOpacity = 0.65;
-        label.layer.shadowRadius = 1.5;
-        label.layer.shadowOffset = CGSizeMake(0, 1);
-        [readout addSubview:label];
+    if (!_toolbarReadout) {
+        UIView *readout = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 90, 44)];
+        labCycles2 = [[UILabel alloc] initWithFrame:CGRectMake(0, 2, 90, 23)];
+        labCycles2.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightMedium];
+        labCycles2.text = [self currentCycles];
+        labFrameskip2 = [[UILabel alloc] initWithFrame:CGRectMake(0, 25, 90, 17)];
+        labFrameskip2.font = [UIFont systemFontOfSize:10];
+        labFrameskip2.text = [NSString stringWithFormat:@"FS %d", [self currentFrameskip]];
+        for (UILabel *label in @[labCycles2, labFrameskip2]) {
+            label.textColor = UIColor.lightGrayColor;
+            label.textAlignment = NSTextAlignmentCenter;
+            label.adjustsFontSizeToFitWidth = YES;
+            label.layer.shadowColor = UIColor.blackColor.CGColor;
+            label.layer.shadowOpacity = 0.65;
+            label.layer.shadowRadius = 1.5;
+            label.layer.shadowOffset = CGSizeMake(0, 1);
+            [readout addSubview:label];
+        }
+        labCycles2.accessibilityLabel = @"CPU cycles";
+        labFrameskip2.accessibilityLabel = @"Frameskip";
+        labCycles2.accessibilityValue = labCycles2.text;
+        labFrameskip2.accessibilityValue = labFrameskip2.text;
+        _toolbarReadout = readout;
     }
-    labCycles2.accessibilityLabel = @"CPU cycles";
-    labFrameskip2.accessibilityLabel = @"Frameskip";
-    labCycles2.accessibilityValue = labCycles2.text;
-    labFrameskip2.accessibilityValue = labFrameskip2.text;
-    [items addObject:readout];
+    [items addObject:_toolbarReadout];
 
     for (int i = 0; i < NUM_BUTTON_INFO; i++) {
         if ([self allowsInput:toggleButtonInfo[i].type]) {
             UIButton *button = [self toolbarButton:toggleButtonInfo[i].symbol label:toggleButtonInfo[i].label action:@selector(toggleInput:)];
             BOOL active = [self findInputView:toggleButtonInfo[i].type] != nil;
             button.tintColor = active ? self.view.tintColor : UIColor.lightGrayColor;
-            button.accessibilityTraits |= active ? UIAccessibilityTraitSelected : 0;
+            if (active) button.accessibilityTraits |= UIAccessibilityTraitSelected;
+            else button.accessibilityTraits &= ~UIAccessibilityTraitSelected;
             button.tag = toggleButtonInfo[i].type;
             [items addObject:button];
         }
@@ -513,6 +523,8 @@ static struct {
             frame = [self landscapeToolbarFrame:rootRect];
 
             fullscreenPanel = [[FloatPanel alloc] initWithFrame:frame];
+            _toolbarButtons = [NSMutableDictionary dictionary];
+            _toolbarReadout = nil;
             __weak DPEmulatorViewController *weakSelf = self;
             fullscreenPanel.visibilityChanged = ^(BOOL collapsed) {
                 DPEmulatorViewController *controller = weakSelf;

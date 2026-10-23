@@ -29,11 +29,14 @@
 }
 @end
 
-@interface FloatPanel ()
+@interface FloatPanel () <UIScrollViewDelegate>
 @property (nonatomic, strong) ToolbarScrollView *controls;
 @property (nonatomic, strong) NSArray<UIView *> *items;
 @property (nonatomic, readwrite) UIButton *collapseButton;
 @property (nonatomic, readwrite, getter=isCollapsed) BOOL collapsed;
+@property (nonatomic, strong) NSMutableSet<UIControl *> *pressedControls;
+@property (nonatomic) BOOL scrolling;
+@property (nonatomic) BOOL pointerHovering;
 @end
 
 @implementation FloatPanel
@@ -47,6 +50,8 @@
         _controls = [[ToolbarScrollView alloc] initWithFrame:CGRectZero];
         _controls.showsHorizontalScrollIndicator = NO;
         _controls.delaysContentTouches = NO;
+        _controls.delegate = self;
+        _pressedControls = [NSMutableSet set];
         [self addSubview:_controls];
         _collapseButton = [UIButton buttonWithType:UIButtonTypeSystem];
         _collapseButton.tintColor = UIColor.lightGrayColor;
@@ -56,9 +61,15 @@
         _collapseButton.layer.shadowOffset = CGSizeMake(0, 1);
         [_collapseButton addTarget:self action:@selector(toggleCollapsed) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:_collapseButton];
+        [self observeControl:_collapseButton];
+        UIHoverGestureRecognizer *hover = [[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(pointerHoverChanged:)];
+        hover.cancelsTouchesInView = NO;
+        [self addGestureRecognizer:hover];
         [self updateArrow];
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reduceMotionChanged:)
             name:UIAccessibilityReduceMotionStatusDidChangeNotification object:nil];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(voiceOverStatusChanged:)
+            name:UIAccessibilityVoiceOverStatusDidChangeNotification object:nil];
     }
     return self;
 }
@@ -73,7 +84,7 @@
 
 - (void)updateArrow
 {
-    NSString *symbol = self.collapsed ? @"chevron.right.circle" : @"chevron.left.circle";
+    NSString *symbol = self.collapsed ? @"chevron.left.circle" : @"chevron.right.circle";
     [self.collapseButton setImage:[UIImage systemImageNamed:symbol withConfiguration:
         [UIImageSymbolConfiguration configurationWithPointSize:23 weight:UIImageSymbolWeightRegular]]
                         forState:UIControlStateNormal];
@@ -103,24 +114,79 @@
         self.controls.transform = CGAffineTransformMakeTranslation(available / 2 + 22, 0);
 }
 
+- (void)observeControl:(UIControl *)control
+{
+    [control addTarget:self action:@selector(controlPressed:) forControlEvents:UIControlEventTouchDown];
+    [control addTarget:self action:@selector(controlReleased:)
+        forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+}
+
 - (void)setItems:(NSArray<UIView *> *)items
 {
+    // Retained controls stay attached so selection changes preserve accessibility
+    // focus, pointer hover, and a press that is still in progress.
     for (UIView *item in self.items) {
-        if ([item isKindOfClass:UIControl.class])
-            [(UIControl *)item removeTarget:self action:@selector(resetAutoHideTimer) forControlEvents:UIControlEventTouchUpInside];
+        if ([items containsObject:item]) continue;
+        if ([item isKindOfClass:UIControl.class]) {
+            UIControl *control = (UIControl *)item;
+            [control removeTarget:self action:@selector(controlPressed:) forControlEvents:UIControlEventTouchDown];
+            [control removeTarget:self action:@selector(controlReleased:)
+                forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+            [self.pressedControls removeObject:control];
+        }
         [item removeFromSuperview];
     }
-    _items = [items copy];
+    NSUInteger index = 0;
     for (UIView *item in items) {
-        [self.controls addSubview:item];
-        if ([item isKindOfClass:UIControl.class])
-            [(UIControl *)item addTarget:self action:@selector(resetAutoHideTimer) forControlEvents:UIControlEventTouchUpInside];
+        if (![self.items containsObject:item] && [item isKindOfClass:UIControl.class])
+            [self observeControl:(UIControl *)item];
+        if (item.superview != self.controls || [self.controls.subviews indexOfObject:item] != index)
+            [self.controls insertSubview:item atIndex:index];
+        index++;
     }
+    _items = [items copy];
     [self setNeedsLayout];
-    // Input toggles rebuild the row during their action; restart even if the old
-    // control is removed before its touch-up timer callback can run.
     [self resetAutoHideTimer];
 }
+
+- (void)controlPressed:(UIControl *)control
+{
+    [self.pressedControls addObject:control];
+    [self resetAutoHideTimer];
+}
+
+- (void)controlReleased:(UIControl *)control
+{
+    [self.pressedControls removeObject:control];
+    [self resetAutoHideTimer];
+}
+
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView
+{
+    self.scrolling = YES;
+    [self resetAutoHideTimer];
+}
+
+- (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate
+{
+    self.scrolling = decelerate;
+    [self resetAutoHideTimer];
+}
+
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView
+{
+    self.scrolling = NO;
+    [self resetAutoHideTimer];
+}
+
+- (void)pointerHoverChanged:(UIHoverGestureRecognizer *)gesture
+{
+    self.pointerHovering = gesture.state == UIGestureRecognizerStateBegan || gesture.state == UIGestureRecognizerStateChanged;
+    [self resetAutoHideTimer];
+}
+
+- (BOOL)voiceOverRunning { return UIAccessibilityIsVoiceOverRunning(); }
+- (void)voiceOverStatusChanged:(NSNotification *)notification { [self resetAutoHideTimer]; }
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
@@ -161,7 +227,8 @@
 - (void)resetAutoHideTimer
 {
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideContent) object:nil];
-    if (self.autoHide && !self.collapsed && self.superview)
+    if (self.autoHide && !self.collapsed && self.superview &&
+        !self.pressedControls.count && !self.scrolling && !self.pointerHovering && ![self voiceOverRunning])
         [self performSelector:@selector(hideContent) withObject:nil afterDelay:self.autoHideInterval];
 }
 - (void)applyAutoHideDelay:(NSTimeInterval)delay
@@ -182,13 +249,25 @@
 - (void)willMoveToSuperview:(UIView *)newSuperview
 {
     [super willMoveToSuperview:newSuperview];
-    if (!newSuperview)
+    if (!newSuperview) {
+        [self clearInteraction];
         [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideContent) object:nil];
+    }
 }
+- (void)clearInteraction
+{
+    [self.pressedControls removeAllObjects];
+    self.scrolling = NO;
+    self.pointerHovering = NO;
+}
+
 - (void)didMoveToWindow
 {
     [super didMoveToWindow];
     if (self.window) [self resetAutoHideTimer];
-    else [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideContent) object:nil];
+    else {
+        [self clearInteraction];
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideContent) object:nil];
+    }
 }
 @end
