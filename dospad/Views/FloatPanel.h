@@ -19,23 +19,18 @@
 #import <UIKit/UIKit.h>
 
 
-@interface FloatPanel : UIView {
-    UIView *contentView;
-    UIButton *btnAutoHide;
-    BOOL autoHide;
-    BOOL isContentShowing;
-    float autoHideInterval;
-    NSArray *items;
-}
-
+// Background-free landscape controls. Visibility is independent of auto-hide policy.
+@interface FloatPanel : UIView
 @property (nonatomic, readonly) UIView *contentView;
+@property (nonatomic, readonly) UIButton *collapseButton;
+@property (nonatomic, readonly, getter=isCollapsed) BOOL collapsed;
 @property (nonatomic, assign) BOOL autoHide;
 @property (nonatomic, assign) float autoHideInterval;
-@property (nonatomic, copy) void (^pinAction)(void);
+@property (nonatomic, copy) void (^visibilityChanged)(BOOL collapsed);
 
 - (void)applyAutoHideDelay:(NSTimeInterval)delay;
-
+- (void)setCollapsed:(BOOL)collapsed animated:(BOOL)animated;
 - (void)hideContent;
 - (void)showContent;
-- (void)setItems:(NSArray*)itemArray;
+- (void)setItems:(NSArray<UIView *> *)items;
 @end

@@ -33,7 +33,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) BOOL showMouseHold;
 @property (readonly) BOOL autoOpenLastPackage;
 @property (readonly) BOOL keepScreenAwake;
-// Seconds before hiding the landscape toolbar; zero keeps it visible.
+// Seconds before collapsing the landscape toolbar; zero disables timed collapse.
 @property (readonly) NSTimeInterval toolbarAutoHideDelay;
 - (void)toggleToolbarAutoHide;
 @property (readonly) BOOL pixelatedScaling;
