@@ -113,17 +113,18 @@ Simulator evidence does not establish iPad performance or physical input/audio c
 
 ## Physical iPad build and launch
 
-Run the following in your own Terminal to build, install, and launch the Release app without a debugger. First find the paired iPad identifier:
+Run the following in your own Terminal to unlock the login keychain, build the signed Release app, install it, and launch without a debugger. First find the paired iPad identifier:
 
 ```sh
 xcrun devicectl list devices
 ```
 
-Replace the worktree path and device identifier below. Each step runs only if the preceding step succeeds. Installation updates the existing app and preserves its Documents folder.
+Replace the repository path and device identifier below. Each step runs only if the preceding step succeeds. Installation updates the existing app and preserves its Documents folder.
 
 ```sh
 cd /path/to/ndos-x &&
 NDOS_X_DEVICE="<paired-iPad-identifier>" &&
+security unlock-keychain "$HOME/Library/Keychains/login.keychain-db" &&
 xcodebuild -project ndos.xcodeproj -scheme nDOS-X \
   -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath output/ndos-x -allowProvisioningUpdates build &&
@@ -134,21 +135,9 @@ xcrun devicectl device process launch \
   --device "$NDOS_X_DEVICE" io.turley.ndosx
 ```
 
-The user confirmed the following exact command builds, installs, and launches on their paired iPad on October 12, 2026:
+The keychain unlock prompts for your password through `security`; no password is embedded in the command. Run the command interactively so you can respond to the prompt before signing starts.
 
-```sh
-cd /Users/tomeks/Development/ndos-x &&
-xcodebuild -project ndos.xcodeproj -scheme nDOS-X \
-  -configuration Release -destination 'generic/platform=iOS' \
-  -derivedDataPath output/ndos-x -allowProvisioningUpdates build &&
-xcrun devicectl device install app \
-  --device 00008142-000A38902111401C \
-  output/ndos-x/Build/Products/Release-iphoneos/nDOS-X.app &&
-xcrun devicectl device process launch \
-  --device 00008142-000A38902111401C io.turley.ndosx
-```
-
-If signing reports a locked keychain, unlock it locally with `security unlock-keychain ~/Library/Keychains/login.keychain-db` and retry the build. This launch does not attach a debugger. Select a configuration and tap **Start** in the app. Confirm both nDOS and nDOS-X coexist and use separate data before copying media into the experiment.
+Select a configuration and tap **Start** in the app. Confirm both nDOS and nDOS-X coexist and use separate data before copying media into the experiment.
 
 ## Update upstream
 
