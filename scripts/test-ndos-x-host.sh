@@ -9,7 +9,7 @@ ndos_x_binary="$ndos_x_root/output/ndos-x-host-check"
 xcrun --sdk iphonesimulator clang++ -target arm64-apple-ios15.4-simulator -isysroot "$ndos_x_sdk" \
     -std=c++14 -fobjc-arc -DSDL_MAIN_HANDLED -I"$ndos_x_root/Experimental/Host" \
     -I"$ndos_x_root/vendor/SDL2/include" "$ndos_x_root/Experimental/Tests/host-check.mm" \
-    "$ndos_x_root/Experimental/Host/NDOSXHost.mm" "$ndos_x_prefix/lib/libSDL2.a" \
+    "$ndos_x_root/Experimental/Host/NDOSXHost.mm" "$ndos_x_root/Experimental/Tests/menu-engine-fixture.cpp" "$ndos_x_prefix/lib/libSDL2.a" \
     -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
     -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework GameController \
     -o "$ndos_x_binary"

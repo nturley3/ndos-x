@@ -30,6 +30,9 @@
 #import "DPMouseManager.h"
 #import "DPKeyboardManager.h"
 #import "DPSettingsViewController.h"
+#ifdef NDOS_X_HOST
+#import "NDOSXMenu.h"
+#endif
 
 typedef NS_ENUM(NSInteger, DPFloatingInputType) {
 	TAG_INPUT_MIN = 1000,
@@ -93,6 +96,9 @@ static struct {
     UIView *_toolbarReadout;
     UIDocumentPickerViewController *_guardedImageMountPicker;
     
+#ifdef NDOS_X_HOST
+    NDOSXMenuViewController *_engineMenu;
+#endif
     BOOL _settingsPresented;
     BOOL _emulatorVisible;
     BOOL shouldShrinkScreen;
@@ -303,6 +309,9 @@ static struct {
     }
 #ifndef NDOS_X_HOST
     [items addObject:[self toolbarButton:@"opticaldisc" label:@"Open disk image" action:@selector(openImageMount:)]];
+#endif
+#ifdef NDOS_X_HOST
+    [items addObject:[self toolbarButton:@"list.bullet" label:@"Engine Menu" action:@selector(showEngineMenu:)]];
 #endif
     [items addObject:[self toolbarButton:@"gearshape" label:@"Settings" action:@selector(showOption:)]];
 #ifndef NDOS_X_HOST
@@ -591,7 +600,16 @@ static struct {
 - (void)registerButton:(UIButton*)btn name:(NSString*)name
 {
 #ifdef NDOS_X_HOST
-    if ([@[@"floppy",@"cdrom",@"gamepad-toggle"] containsObject:name]) {btn.enabled=NO;return;}
+    // Portrait themes have a controller button; use this unavailable host control
+    // for the engine menu without changing the shared theme assets.
+    if ([name isEqualToString:@"gamepad-toggle"]) {
+        [btn setImage:[UIImage systemImageNamed:@"list.bullet"] forState:UIControlStateNormal];
+        [btn setImage:nil forState:UIControlStateHighlighted];
+        btn.tintColor=UIColor.lightGrayColor;btn.accessibilityLabel=@"Engine Menu";
+        [btn addTarget:self action:@selector(showEngineMenu:) forControlEvents:UIControlEventTouchUpInside];
+        return;
+    }
+    if ([@[@"floppy",@"cdrom"] containsObject:name]) {btn.enabled=NO;return;}
 #endif
     if ([name isEqualToString:@"power"])
     {
@@ -1093,8 +1111,37 @@ static struct {
 
 - (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController
 {
+#ifdef NDOS_X_HOST
+    if (_engineMenu) { [_engineMenu finish];return; }
+#endif
     [self finishSettings];
 }
+
+#ifdef NDOS_X_HOST
+- (void)showEngineMenu:(id)sender
+{
+    if (self.presentedViewController || _settingsPresented) return;
+    _settingsPresented=YES;
+    [self.view endEditing:YES];
+    [self.screenView cancelEmulatorTouches];
+    [[DPKeyboardManager defaultManager] willResignActive];
+    holdIndicator.alpha=0;
+    _engineMenu=[NDOSXMenuViewController new];
+    __weak DPEmulatorViewController *weakSelf=self;
+    _engineMenu.didFinish=^{
+        DPEmulatorViewController *controller=weakSelf;
+        if (!controller) return;
+        controller->_engineMenu=nil;
+        controller->_settingsPresented=NO;
+        [controller didBecomeActive];
+    };
+    UINavigationController *navigation=[[UINavigationController alloc] initWithRootViewController:_engineMenu];
+    navigation.modalPresentationStyle=UIModalPresentationFormSheet;
+    navigation.preferredContentSize=CGSizeMake(560,680);
+    [self presentViewController:navigation animated:YES completion:nil];
+    navigation.presentationController.delegate=self;
+}
+#endif
 
 - (void)showOption:(id)sender
 {

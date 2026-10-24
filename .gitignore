@@ -34,3 +34,5 @@ tmp
 !/scripts/test-ndos-x-host.sh
 !/scripts/test-ndos-x-guest-mouse.sh
 !/scripts/test-ndos-x-profiles.sh
+
+!/scripts/test-ndos-x-menu.sh

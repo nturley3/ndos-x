@@ -1,4 +1,5 @@
 #import "NDOSXHost.h"
+#import "NDOSXMenu.h"
 #include "SDL.h"
 #include <future>
 #include <thread>
@@ -53,8 +54,53 @@ int main() {@autoreleasepool {
  UIImage *frame=ndos_x_take_frame();require(frame&&frame.size.width==2&&frame.size.height==1,"frame dimensions");
  CFDataRef data=CGDataProviderCopyData(CGImageGetDataProvider(frame.CGImage));require(CFDataGetBytePtr(data)[0]==255,"frame owns a copy");CFRelease(data);require(ndos_x_take_frame()==nil,"mailbox consumed once");
  puts("PASS: frame ownership and mailbox");
+ // Exercise control requests on a worker that remains paused for guest execution.
+ __block bool menuDone=false;
+ __block NSArray<NDOSXMenuItem *> *menuItems;
+ __block NSError *menuFailure;
+ auto completion=^(NSArray<NDOSXMenuItem *> *items,NSError *error) {
+     require(NSThread.isMainThread,"menu completion belongs to main thread");
+     menuItems=items;menuFailure=error;menuDone=true;
+ };
+ auto waitMenu=^{
+     auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+     while(!menuDone && std::chrono::steady_clock::now()<deadline)
+         [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.005]];
+     require(menuDone,"menu request completes while paused");menuDone=false;
+ };
+ NDOSXMenuSession menu=ndos_x_menu_open(completion);
+ require(menu!=0,"menu session opens");
+ require(!ndos_x_send_keyboard(0,SDL_PRESSED,SDL_SCANCODE_A),"menu suppresses guest input");
+ require(ndos_x_host_poll()==0,"menu open delivers releases first");drain();
+ auto menuWorker=std::async(std::launch::async,[]{return ndos_x_host_poll();});
+ waitMenu();require(!menuFailure && menuItems.count==1,"menu snapshot while paused");
+ require(menuItems[0].children.count==2,"menu hierarchy copied");
+ NSArray *original=menuItems;
+ ndos_x_menu_invoke(menu,@"mixer_mute",completion);waitMenu();
+ require(!menuFailure && menuItems[0].children[0].checked,"menu command updates snapshot");
+ require(!((NDOSXMenuItem *)((NDOSXMenuItem *)original[0]).children[0]).checked,"old snapshot immutable");
+ ndos_x_menu_invoke(menu,@"mapper_gui",completion);waitMenu();require(menuFailure!=nil,"unsupported command rejected");
+ ndos_x_menu_invoke(menu,@"missing",completion);waitMenu();require(menuFailure!=nil,"missing command rejected");
+ ndos_x_set_scene_paused(1);require(menuWorker.get()==0,"nested scene pause delivers releases");drain();
+ menuWorker=std::async(std::launch::async,[]{return ndos_x_host_poll();});
+ ndos_x_menu_close(menu);
+ require(menuWorker.wait_for(std::chrono::milliseconds(40))==std::future_status::timeout,"closing menu preserves scene pause");
+ ndos_x_menu_refresh(menu,completion);waitMenu();require(menuFailure!=nil,"closed session rejected");
+ NDOSXMenuSession newMenu=ndos_x_menu_open(completion);
+ require(newMenu!=menu,"new session has unique identity");
+ require(menuWorker.get()==0,"new menu delivers releases");drain();
+ menuWorker=std::async(std::launch::async,[]{return ndos_x_host_poll();});
+ waitMenu();require(!menuFailure,"menu available during independent pause");
+ ndos_x_menu_close(menu); // Stale close must not unpause the new session.
+ ndos_x_menu_refresh(newMenu,completion);waitMenu();require(!menuFailure,"stale close leaves current session intact");
+ ndos_x_menu_close(newMenu);ndos_x_set_scene_paused(0);
+ require(menuWorker.get()==0,"menu worker resumes after all pauses clear");drain();
+ puts("PASS: paused menu controls, immutable snapshots, unsupported commands and session lifetimes");
  ndos_x_set_scene_paused(1);require(ndos_x_host_poll()==0,"stop prep release poll");drain();
- auto stopping=std::async(std::launch::async,[]{return ndos_x_host_poll();});
- require(stopping.wait_for(std::chrono::milliseconds(40))==std::future_status::timeout,"pause before stop");ndos_x_request_stop();require(stopping.get()==1,"stop wakes paused worker");
- puts("PASS: stop wakes paused worker");SDL_Quit();puts("ALL HOST CHECKS PASSED");return 0;
+ auto stopping=std::async(std::launch::async,[]{while (!ndos_x_host_poll()) drain();return 1;});
+ require(stopping.wait_for(std::chrono::milliseconds(40))==std::future_status::timeout,"pause before stop");NDOSXMenuSession stoppingMenu=ndos_x_menu_open(completion);
+ ndos_x_menu_refresh(stoppingMenu,completion);
+ ndos_x_request_stop();require(stopping.get()==1,"stop wakes paused worker");
+ waitMenu();require(menuFailure!=nil,"stop cancels queued menu requests");
+ puts("PASS: stop wakes paused worker and cancels menu requests");SDL_Quit();puts("ALL HOST CHECKS PASSED");return 0;
 }}

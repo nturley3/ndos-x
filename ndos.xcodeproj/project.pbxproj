@@ -646,6 +646,7 @@
 		83CB8F81685EAFFD2B9EED77 /* ndos-x.conf in Resources */ = {isa = PBXBuildFile; fileRef = 2275CC1E15E19FB7DE0563ED /* ndos-x.conf */; };
 		AA0100000000000000000002 /* NDOSXProfiles.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000001 /* NDOSXProfiles.m */; };
 		AA0100000000000000000004 /* NDOSXProfilePicker.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000003 /* NDOSXProfilePicker.m */; };
+		AA0200000000000000000002 /* NDOSXMenuViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0200000000000000000001 /* NDOSXMenuViewController.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1513,6 +1514,8 @@
 		AA0100000000000000000001 /* NDOSXProfiles.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "Experimental/Host/NDOSXProfiles.m"; sourceTree = SOURCE_ROOT; };
 		AA0100000000000000000003 /* NDOSXProfilePicker.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "Experimental/Host/NDOSXProfilePicker.m"; sourceTree = SOURCE_ROOT; };
 		AA0100000000000000000005 /* NDOSXProfiles.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Experimental/Host/NDOSXProfiles.h"; sourceTree = SOURCE_ROOT; };
+		AA0200000000000000000001 /* NDOSXMenuViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "Experimental/Host/NDOSXMenuViewController.m"; sourceTree = SOURCE_ROOT; };
+		AA0200000000000000000003 /* NDOSXMenu.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Experimental/Host/NDOSXMenu.h"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2980,6 +2983,8 @@
 		951A7AB7802EC8183B4FBED7 /* nDOS-X Host */ = {
 			isa = PBXGroup;
 			children = (
+				AA0200000000000000000001 /* NDOSXMenuViewController.m */,
+				AA0200000000000000000003 /* NDOSXMenu.h */,
 				56FFEE466558774B56E8CE53 /* NDOSXHost.mm */,
 				27A63E43818D75DCF40137A0 /* NDOSXScreenView.m */,
 				AA0100000000000000000005 /* NDOSXProfiles.h */,
@@ -4065,6 +4070,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA0200000000000000000002 /* NDOSXMenuViewController.m in Sources */,
 				E9A3AFB00954972EDAD52784 /* NDOSXHost.mm in Sources */,
 				94185E62AF8F1041DE651AC3 /* NDOSXScreenView.m in Sources */,
 				AA0100000000000000000002 /* NDOSXProfiles.m in Sources */,

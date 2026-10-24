@@ -16,6 +16,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--destination", required=True)
     parser.add_argument("--derived-data", default="/tmp/ndos-settings-ui-build")
+    parser.add_argument("--host", choices=["nDOS", "nDOS-X"], default="nDOS")
+    parser.add_argument("--source", default="scripts/test-settings-ui.m")
+    parser.add_argument("--test-name", default="SettingsTests")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     project = json.loads(subprocess.check_output([
@@ -24,12 +27,12 @@ def main():
     objects = project["objects"]
     root = objects[project["rootObject"]]
     host = next(key for key, value in objects.items()
-                if value["isa"] == "PBXNativeTarget" and value.get("name") == "nDOS")
+                if value["isa"] == "PBXNativeTarget" and value.get("name") == args.host)
     ids = {name: f"A174000000000000000000{index:02X}" for index, name in enumerate(
         ["target", "config_list", "config", "sources", "source", "build_file", "product", "dependency"], 1)}
     assert not set(ids.values()).intersection(objects)
     objects[ids["target"]] = {
-        "isa": "PBXNativeTarget", "name": "SettingsTests", "productName": "SettingsTests",
+        "isa": "PBXNativeTarget", "name": args.test_name, "productName": args.test_name,
         "productType": "com.apple.product-type.bundle.unit-test",
         "productReference": ids["product"], "buildConfigurationList": ids["config_list"],
         "buildPhases": [ids["sources"]], "dependencies": [ids["dependency"]], "buildRules": []
@@ -40,25 +43,31 @@ def main():
     }
     includes = ["dospad/Main", "dospad/Views", "dospad/Theme", "dospad/Util", "SDL/include",
                 "SDL/src/video/uikit", "SDL/src/events"]
+    if args.host == "nDOS-X":
+        includes = ["Experimental/Compatibility", "Experimental/Host", "vendor/SDL2/include",
+                    "dospad/**", "SDL/src/video/uikit"]
     objects[ids["config"]] = {
         "isa": "XCBuildConfiguration", "name": "Debug", "buildSettings": {
             "PRODUCT_BUNDLE_IDENTIFIER": "io.turley.ndos.SettingsTests",
             "PRODUCT_NAME": "$(TARGET_NAME)", "GENERATE_INFOPLIST_FILE": "YES",
             "CLANG_ENABLE_OBJC_ARC": "YES", "SDKROOT": "iphonesimulator",
+            "USE_HEADERMAP": "NO" if args.host == "nDOS-X" else "YES",
             "IPHONEOS_DEPLOYMENT_TARGET": "15.4", "TARGETED_DEVICE_FAMILY": "1,2",
             "HEADER_SEARCH_PATHS": [str(repo / path) for path in includes],
             "OTHER_LDFLAGS": ["-framework", "UIKit", "-framework", "CoreGraphics"],
-            "TEST_TARGET_NAME": "nDOS", "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/nDOS.app/nDOS",
+            "GCC_PREPROCESSOR_DEFINITIONS": ["NDOS_X_HOST"] if args.host == "nDOS-X" else [],
+            "TEST_TARGET_NAME": args.host,
+            "TEST_HOST": f"$(BUILT_PRODUCTS_DIR)/{args.host}.app/{args.host}",
             "BUNDLE_LOADER": "$(TEST_HOST)"
         }
     }
     objects[ids["sources"]] = {"isa": "PBXSourcesBuildPhase", "buildActionMask": "2147483647",
                                "files": [ids["build_file"]], "runOnlyForDeploymentPostprocessing": "0"}
     objects[ids["source"]] = {"isa": "PBXFileReference", "lastKnownFileType": "sourcecode.c.objc",
-                              "path": str(repo / "scripts/test-settings-ui.m"), "sourceTree": "<absolute>"}
+                              "path": str(repo / args.source), "sourceTree": "<absolute>"}
     objects[ids["build_file"]] = {"isa": "PBXBuildFile", "fileRef": ids["source"]}
     objects[ids["product"]] = {"isa": "PBXFileReference", "explicitFileType": "wrapper.cfbundle",
-                               "path": "SettingsTests.xctest", "sourceTree": "BUILT_PRODUCTS_DIR"}
+                               "path": f"{args.test_name}.xctest", "sourceTree": "BUILT_PRODUCTS_DIR"}
     objects[ids["dependency"]] = {"isa": "PBXTargetDependency", "target": host}
     root["targets"].append(ids["target"])
     root["projectDirPath"] = str(repo)
@@ -72,7 +81,7 @@ def main():
         path.mkdir()
         (path / "project.pbxproj").write_bytes(plistlib.dumps(project))
         subprocess.run([
-            "xcodebuild", "test", "-project", str(path), "-scheme", "SettingsTests",
+            "xcodebuild", "test", "-project", str(path), "-scheme", args.test_name,
             "-destination", args.destination, "-derivedDataPath", str(Path(args.derived_data).resolve()),
             "CODE_SIGNING_ALLOWED=NO", f"SRCROOT={repo}"
         ], cwd=repo, check=True)
