@@ -27,6 +27,9 @@ tmp
 !/adr/
 /adr/*
 !/adr/0003-evaluate-dosbox-x.md
+!/adr/0004-preserve-ndos-ui-with-host-boundary.md
+!/adr/0005-independent-machine-profiles.md
+!/adr/0006-upstream-core-and-host-patches.md
 !/GLOSSARY.md
 !/scripts/prepare-ndos-x.py
 !/scripts/build-ndos-x-engine.sh
