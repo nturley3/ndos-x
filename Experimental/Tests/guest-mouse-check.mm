@@ -35,7 +35,7 @@ static bool waitSample(const std::string &path, Sample &sample, Predicate matche
     return false;
 }
 
-int main() {
+int main(int argc, char **argv) {
     @autoreleasepool {
         std::thread([] {
             std::this_thread::sleep_for(std::chrono::seconds(30));
@@ -49,10 +49,12 @@ int main() {
         [[NSData dataWithBytes:program length:sizeof(program)]
             writeToFile:[directory stringByAppendingPathComponent:@"MPROBE.COM"] atomically:YES];
         NSString *configuration = [directory stringByAppendingPathComponent:@"test.conf"];
-        NSString *profile = @"[sdl]\noutput=surface\nshowmenu=false\nautolock=false\nwaitonerror=false\n"
-                             "[dosbox]\nmachine=svga_s3\nmemsize=128\n"
+        NSString *menu = argc>1 && !strcmp(argv[1],"omitted") ? @"" :
+            [NSString stringWithFormat:@"showmenu=%s\n",argc>1 ? argv[1] : "false"];
+        NSString *profile = [@"[sdl]\noutput=surface\nautolock=false\nwaitonerror=false\n" stringByAppendingString:menu];
+        profile = [profile stringByAppendingString:@"[dosbox]\nmachine=svga_s3\nmemsize=128\n"
                              "[cpu]\ncore=normal\ncputype=pentium_mmx\ncycles=fixed 20000\n"
-                             "[midi]\nmididevice=none\n[render]\nscaler=none\n";
+                             "[midi]\nmididevice=none\n[render]\nscaler=none\n"];
         [profile writeToFile:configuration atomically:YES encoding:NSUTF8StringEncoding error:nil];
         NSString *mount = [NSString stringWithFormat:@"mount c \"%@\"", directory];
         std::string feedback = [directory stringByAppendingPathComponent:@"MOUSE.DAT"].UTF8String;

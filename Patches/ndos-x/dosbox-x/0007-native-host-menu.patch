@@ -1,0 +1,125 @@
+diff --git a/include/ndos_x_menu.h b/include/ndos_x_menu.h
+new file mode 100644
+--- /dev/null
++++ b/include/ndos_x_menu.h
+@@ -0,0 +1,21 @@
++#pragma once
++/* Worker-thread-only interface. Visitor strings are borrowed for the call. */
++#ifdef __cplusplus
++extern "C" {
++#endif
++struct ndos_x_menu_entry {
++    const char *name;
++    const char *text;
++    const char *unavailable_reason;
++    unsigned int depth;
++    int type; /* 0 action, 1 submenu, 2/3 separator */
++    int enabled;
++    int checked;
++};
++typedef void (*ndos_x_menu_visitor)(const struct ndos_x_menu_entry *, void *);
++/* 0 success, 1 not ready, 2 unavailable command. */
++int ndos_x_engine_menu_snapshot(ndos_x_menu_visitor visitor, void *context);
++int ndos_x_engine_menu_invoke(const char *name);
++#ifdef __cplusplus
++}
++#endif
+diff --git a/src/gui/menu.cpp b/src/gui/menu.cpp
+--- a/src/gui/menu.cpp
++++ b/src/gui/menu.cpp
+@@ -2703,6 +2703,9 @@
+ }
+ 
+ void DOSBoxMenu::showMenu(bool show) {
++#ifdef NDOS_X_HOST
++    show = false; // UIKit owns menu presentation, independent of profile showmenu.
++#endif
+     if (menuVisible != show) {
+         menuVisible = show;
+         needRedraw = true;
+@@ -3662,3 +3665,73 @@
+     }
+ }
+ #endif
++
++#ifdef NDOS_X_HOST
++#include "ndos_x_menu.h"
++
++namespace {
++// Explicitly reviewed direct actions. Do not enable new upstream commands by default.
++bool ndos_menu_supported(const std::string &name) {
++    static const char * const supported[] = {
++        "cpu88-4", "cpu286-8", "cpu286-12", "cpu286-25", "cpu386-25",
++        "cpu386-33", "cpu486-33", "cpu486-66", "cpu486-100", "cpu486-133",
++        "cpu586-60", "cpu586-66", "cpu586-75", "cpu586-90", "cpu586-100",
++        "cpu586-120", "cpu586-133", "cpu586-166", "cpu586-200",
++        "cpuak6-200", "cpuak6-300", "cpuath-600", "cpu686-866",
++        "frameskip_0", "frameskip_1", "frameskip_2", "frameskip_3",
++        "frameskip_4", "frameskip_5", "frameskip_6", "frameskip_7",
++        "frameskip_8", "frameskip_9", "frameskip_10",
++        "mixer_mute", "mixer_swapstereo"
++    };
++    for (const char *candidate : supported)
++        if (name == candidate) return true;
++    return false;
++}
++
++bool ndos_menu_walk(const DOSBoxMenu::displaylist &list, unsigned int depth,
++                    bool ancestors_enabled, ndos_x_menu_visitor visitor, void *context,
++                    const char *invoke_name) {
++    // Menus are a tree upstream; bound recursion defensively for future changes.
++    if (depth > 32) return false;
++    for (const auto id : list.get_disp_list()) {
++        if (!mainMenu.item_exists(id)) continue;
++        auto &item = mainMenu.get_item(id);
++        if (item.is_hidden()) continue;
++        const bool enabled = ancestors_enabled && item.is_enabled();
++        const bool action = item.get_type() == DOSBoxMenu::item_type_id;
++        const bool supported = ndos_menu_supported(item.get_name());
++        const char *reason = !enabled ? "Unavailable in the current engine state" :
++            action && !supported ? "Not supported in nDOS-X yet" : "";
++        if (visitor) {
++            const ndos_x_menu_entry entry = {
++                item.get_name().c_str(), item.get_text().c_str(), reason,
++                depth, static_cast<int>(item.get_type()),
++                enabled && (!action || supported), item.is_checked()
++            };
++            visitor(&entry, context);
++        }
++        if (invoke_name && item.get_name() == invoke_name) {
++            if (!action || !enabled || !supported) return false;
++            mainMenu.dispatchItemCommand(item);
++            return true;
++        }
++        if (item.get_type() == DOSBoxMenu::submenu_type_id &&
++            ndos_menu_walk(item.display_list, depth + 1, enabled,
++                           visitor, context, invoke_name)) return true;
++    }
++    return false;
++}
++}
++
++extern "C" int ndos_x_engine_menu_snapshot(ndos_x_menu_visitor visitor, void *context) {
++    if (mainMenu.display_list.get_disp_list().empty()) return 1;
++    ndos_menu_walk(mainMenu.display_list, 0, true, visitor, context, nullptr);
++    return 0;
++}
++
++extern "C" int ndos_x_engine_menu_invoke(const char *name) {
++    if (mainMenu.display_list.get_disp_list().empty()) return 1;
++    if (!name) return 2;
++    return ndos_menu_walk(mainMenu.display_list, 0, true, nullptr, nullptr, name) ? 0 : 2;
++}
++#endif
+diff --git a/src/gui/sdlmain.cpp b/src/gui/sdlmain.cpp
+--- a/src/gui/sdlmain.cpp
++++ b/src/gui/sdlmain.cpp
+@@ -5000,7 +5000,7 @@
+     Section_prop * section=static_cast<Section_prop *>(control->GetSection("sdl"));
+     std::string munlock;
+ 
+-#if DOSBOXMENU_TYPE == DOSBOXMENU_SDLDRAW /* SDL drawn menus */
++#if DOSBOXMENU_TYPE == DOSBOXMENU_SDLDRAW && !defined(NDOS_X_HOST) /* SDL drawn menus */
+     if (GFX_GetPreventFullscreen()) {
+         /* do NOT draw SDL menu in OpenGL mode when 3Dfx emulation is using OpenGL */
+         mainMenu.menuUserHoverAt = DOSBoxMenu::unassigned_item_handle;

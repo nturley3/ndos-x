@@ -1,4 +1,8 @@
 #import "NDOSXHost.h"
+#import "NDOSXMenu.h"
+#include "../../vendor/dosbox-x/include/ndos_x_menu.h"
+#include <functional>
+#include <cstring>
 #include "../../vendor/SDL2/include/SDL.h"
 #include <condition_variable>
 #include <deque>
@@ -17,6 +21,9 @@ std::array<bool, 9> heldButtons{};
 std::array<bool, SDL_NUM_SCANCODES> deliveredKeys{};
 std::array<bool, 9> deliveredButtons{};
 std::chrono::steady_clock::time_point nextKeyTime{};
+constexpr unsigned int menuPause = 8;
+std::deque<std::function<void(bool)>> controls;
+NDOSXMenuSession menuSession = 0, nextMenuSession = 0;
 unsigned int pauseReasons = 1; // A scene must become active before execution.
 bool stopping = false;
 bool releaseBeforePause = false;
@@ -94,24 +101,45 @@ extern "C" void ndos_x_set_view_paused(int paused) {setPause(4,paused);}
 extern "C" void ndos_x_set_settings_paused(int paused) {setPause(2,paused);}
 extern "C" int ndos_x_settings_paused(void) {std::lock_guard<std::mutex> lock(stateMutex);return !!(pauseReasons&2);}
 extern "C" void ndos_x_request_stop(void) {
-    {std::lock_guard<std::mutex> lock(stateMutex);stopping=true;}
+    std::deque<std::function<void(bool)>> cancelled;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        stopping=true;menuSession=0;
+        cancelled.swap(controls);
+    }
     stateChanged.notify_all();
+    for (auto &request : cancelled) request(false);
 }
 
 extern "C" int ndos_x_host_poll(void) {
     std::deque<Input> pending;
     SDL_Keymod mod;
+    // Only this worker touches audio or live engine state. Control requests can
+    // wake a paused worker without letting guest execution or input resume.
+    static bool audioPaused = false;
     {
         std::unique_lock<std::mutex> lock(stateMutex);
-        if (pauseReasons) {
-            lock.unlock(); SDL_PauseAudio(1); lock.lock();
-            if (!releaseBeforePause)
-                stateChanged.wait(lock,[]{return stopping || !pauseReasons || releaseBeforePause;});
-            if (!pauseReasons && !stopping) {
-                lock.unlock(); SDL_PauseAudio(0); lock.lock();
+        for (;;) {
+            const bool shouldPauseAudio = pauseReasons != 0;
+            if (audioPaused != shouldPauseAudio) {
+                audioPaused = shouldPauseAudio;
+                lock.unlock(); SDL_PauseAudio(audioPaused); lock.lock();
+                continue;
             }
+            if (stopping) return 1;
+            // Deliver releases through GFX_Events before acknowledging menu open.
+            if (releaseBeforePause) break;
+            if (!controls.empty()) {
+                auto request = std::move(controls.front());controls.pop_front();
+                lock.unlock();
+                @autoreleasepool { request(true); }
+                lock.lock();
+                continue;
+            }
+            if (!pauseReasons) break;
+            stateChanged.wait(lock,[]{return stopping || !pauseReasons ||
+                releaseBeforePause || !controls.empty();});
         }
-        if (stopping) return 1;
         auto now=std::chrono::steady_clock::now();
         while(!input.empty() && input.front().ready<=now) {
             Input item=input.front();input.pop_front();pending.push_back(item);
@@ -172,3 +200,116 @@ UIImage *ndos_x_take_frame(void) {
 }
 
 extern "C" int SDL_main(int, char **) {NSLog(@"nDOS-X owns startup through its host adapter");return 1;}
+
+@interface NDOSXMenuItem ()
+- (instancetype)initWithRecord:(NSDictionary *)record children:(NSArray<NDOSXMenuItem *> *)children;
+@end
+@implementation NDOSXMenuItem
+- (instancetype)initWithRecord:(NSDictionary *)record children:(NSArray<NDOSXMenuItem *> *)children {
+    if ((self=[super init])) {
+        _name=[record[@"name"] copy];_title=[record[@"title"] copy];
+        _type=[record[@"type"] integerValue];_enabled=[record[@"enabled"] boolValue];
+        _checked=[record[@"checked"] boolValue];_unavailableReason=[record[@"reason"] copy];
+        _children=[children copy];
+    }
+    return self;
+}
+@end
+
+namespace {
+NSError *menuError(NSInteger code, NSString *description) {
+    return [NSError errorWithDomain:@"NDOSXMenu" code:code
+                          userInfo:@{NSLocalizedDescriptionKey:description}];
+}
+void copyMenuEntry(const ndos_x_menu_entry *entry, void *context) {
+    NSMutableArray *records=(__bridge NSMutableArray *)context;
+    // DOSBox-X owns these bytes only during the visitor call.
+    NSString *(^copyString)(const char *) = ^NSString *(const char *text) {
+        return [[NSString alloc] initWithBytes:text length:strlen(text)
+                                      encoding:NSUTF8StringEncoding] ?: @"?";
+    };
+    [records addObject:@{@"name":copyString(entry->name), @"title":copyString(entry->text),
+        @"reason":copyString(entry->unavailable_reason), @"depth":@(entry->depth),
+        @"type":@(entry->type), @"enabled":@(entry->enabled), @"checked":@(entry->checked)}];
+}
+NSArray<NDOSXMenuItem *> *menuTree(NSArray *records, NSUInteger &index, NSUInteger depth) {
+    NSMutableArray *items=[NSMutableArray array];
+    while (index<records.count && [records[index][@"depth"] unsignedIntegerValue]==depth) {
+        NSDictionary *record=records[index++];
+        NSArray *children=menuTree(records,index,depth+1);
+        [items addObject:[[NDOSXMenuItem alloc] initWithRecord:record children:children]];
+    }
+    return [items copy];
+}
+void completeMenu(NDOSXMenuSession session, NDOSXMenuCompletion completion,
+                  NSArray<NDOSXMenuItem *> *items, NSError *error) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSError *resultError=error;
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            if (stopping) resultError=menuError(3,@"The engine has stopped.");
+            else if (!session || menuSession!=session)
+                resultError=menuError(4,@"This menu session has closed.");
+        }
+        completion(resultError ? @[] : items,resultError);
+    });
+}
+void enqueueMenu(NDOSXMenuSession session, NSString *name, NDOSXMenuCompletion completion) {
+    NSCAssert(NSThread.isMainThread,@"Menu requests belong to UIKit");
+    NSString *command=[name copy];
+    NDOSXMenuCompletion reply=[completion copy];
+    auto request=[session,command,reply](bool running) {
+        bool valid;
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            valid=running && !stopping && session && menuSession==session;
+        }
+        if (!valid) { completeMenu(session,reply,@[],menuError(4,@"Menu unavailable."));return; }
+        int result=command ? ndos_x_engine_menu_invoke(command.UTF8String) : 0;
+        NSMutableArray *records=[NSMutableArray array];
+        if (!result) result=ndos_x_engine_menu_snapshot(copyMenuEntry,(__bridge void *)records);
+        NSUInteger index=0;
+        NSArray *items=result ? @[] : menuTree(records,index,0);
+        NSError *error=result ? menuError(result,result==1 ? @"The engine menu is not ready. Close and reopen it after startup." :
+            @"This command is unavailable in nDOS-X or in the current engine state.") : nil;
+        completeMenu(session,reply,items,error);
+    };
+    bool accepted;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        accepted=!stopping && session && menuSession==session && controls.size()<64;
+        if (accepted) controls.push_back(request);
+    }
+    if (accepted) stateChanged.notify_all();
+    else completeMenu(session,reply,@[],menuError(2,@"Menu unavailable or too many pending requests."));
+}
+}
+
+NDOSXMenuSession ndos_x_menu_open(NDOSXMenuCompletion completion) {
+    NSCAssert(NSThread.isMainThread,@"Menu requests belong to UIKit");
+    NDOSXMenuSession session=0;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        if (!stopping && !menuSession) {
+            session=menuSession=++nextMenuSession;
+            releaseLocked();pauseReasons|=menuPause;
+        }
+    }
+    enqueueMenu(session,nil,completion);
+    return session;
+}
+void ndos_x_menu_refresh(NDOSXMenuSession session, NDOSXMenuCompletion completion) {
+    enqueueMenu(session,nil,completion);
+}
+void ndos_x_menu_invoke(NDOSXMenuSession session, NSString *name, NDOSXMenuCompletion completion) {
+    enqueueMenu(session,name,completion);
+}
+void ndos_x_menu_close(NDOSXMenuSession session) {
+    NSCAssert(NSThread.isMainThread,@"Menu requests belong to UIKit");
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        if (!session || menuSession!=session) return;
+        menuSession=0;pauseReasons&=~menuPause;
+    }
+    stateChanged.notify_all();
+}

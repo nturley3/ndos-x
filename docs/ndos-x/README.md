@@ -23,7 +23,7 @@ Prepared engine files and its index intentionally contain the exact numbered hos
 
 The emulator runs on a worker thread. SDL2 uses its dummy video backend and CoreAudio services; the nDOS app owns its UIKit window and presentation. An upstream frame callback copies the guest software surface into a single latest-frame mailbox. A main-thread display link consumes it, including display-mode changes. Target-only compatibility headers retain the existing nDOS keyboard and controller source interfaces without importing private SDL1.3 UIKit objects into the experiment.
 
-Keyboard and relative pointer transitions are queued for the worker. Keyboard transitions are paced so repeated characters and modifiers reach the guest in order. Settings, scene inactivity, and view visibility have independent pause reasons; pausing cancels pending input and releases both held and worker-delivered states before blocking. Stop wakes a paused worker. Engine exit disables further input and displays a stopped session; restarting in the same process is deferred.
+Keyboard and relative pointer transitions are queued for the worker. Keyboard transitions are paced so repeated characters and modifiers reach the guest in order. Settings, the engine menu, scene inactivity, and view visibility have independent pause reasons; pausing cancels pending input and releases both held and worker-delivered states before blocking. Stop wakes a paused worker. Engine exit disables further input and displays a stopped session; restarting in the same process is deferred.
 
 The default profile maps guest DOS drive C to the experimental app's `Documents/dos` directory. Its configuration is copied to `Documents/config/ndos-x.conf` on first launch and preserved on subsequent launches; an existing uppercase `NDOS-X.CONF` copy is also recognized. Use copied disk/CD images in this app's own sandbox for Windows configurations. The initial configuration supplies Pentium MMX, 128 MB, S3 graphics, SB16, BIOS PS/2 services, and IDE controllers. Windows 98 SE and Microsoft Plus! 98 have been confirmed tested and working by the project author. Windows disk images and installation media must be supplied and configured separately; the launcher does not create or attach them automatically.
 
@@ -47,21 +47,15 @@ The host working directory is `Documents`, so relative paths such as `dos` or `i
 
 Switching configurations requires a full app relaunch. Shut down Windows inside the guest before stopping the app. If a selected config disappears or cannot be read before Start, nDOS-X shows an error and refreshes the picker without starting the emulator.
 
-### EDIT freezes after a mouse click in a custom profile
+## Engine menu
 
-Include these settings in custom configurations, including Windows installation profiles:
+Tap **Engine Menu** (the list icon) in the landscape toolbar or the portrait control strip. In portrait, this replaces the unavailable controller-mapping button. The native sheet follows DOSBox-X's own menu hierarchy, labels, ordering, and checkmarks. Browse categories and submenus, select an action, and keep browsing; tap **Done** or dismiss the sheet to return to the guest.
 
-```ini
-[sdl]
-autolock=false
-showmenu=false
-```
+This version enables CPU speed presets, video frameskip, sound mute, and stereo swap. Other commands remain visible but disabled with an explanation. Desktop dialogs, file pickers, capture, configuration saving, restart, shutdown, and other command families are deferred. Changes affect the running session; the menu does not save changes to the selected profile.
 
-DOSBox-X defaults `showmenu` to true when it is omitted. In the current nDOS-X host integration, a guest mouse click can enter DOSBox-X's desktop menu handler, which waits for SDL events without draining the UIKit input queue. The guest freezes and the worker stops responding to stop requests. Setting `showmenu=false` disables that desktop menu; EDIT's own guest menus remain available. Setting `autolock=false` also prevents the first click from being consumed as a desktop mouse-capture request.
+Opening the sheet releases held input and pauses guest execution and audio. A separate worker control queue obtains immutable menu snapshots and dispatches supported upstream commands while the guest stays paused. Closing the menu removes only its own pause reason, so an inactive scene or another pause still keeps the guest paused. All live menu traversal and command dispatch happen on the engine worker; UIKit receives copied state. Closed sessions and engine stop invalidate pending results.
 
-Simulator diagnosis reproduced the freeze with the user's `win98.conf` and with only `showmenu=true` added to the otherwise working default profile. Changing only `autolock` to false did not resolve the freeze. With both settings above, the user's Windows hardware settings were retained and the test opened EDIT's File menu and dismissed it with Escape. The workaround has been verified in Simulator; physical iPad confirmation remains pending. Edit the profile through Files and fully relaunch nDOS-X to apply it.
-
-This is a host-integration bug still requiring a code fix: nDOS-X should prevent desktop menu handling regardless of the selected configuration.
+The host disables DOSBox-X's SDL desktop menu regardless of `showmenu` in the profile, while retaining its model for the native sheet. Profiles with `showmenu=true` or no `showmenu` entry therefore no longer enter the blocking desktop menu handler on guest clicks. Keep `autolock=false` in custom profiles so the first click is not consumed by desktop mouse capture. The earlier workaround `showmenu=false` remains harmless. Physical iPad menu and mouse confirmation remains a device acceptance check.
 
 ## Load files from the iPad Files app
 
@@ -80,10 +74,15 @@ python3 Experimental/Tests/test-preparation.py
 bash scripts/test-ndos-x-profiles.sh
 # With an ARM64 iPad Simulator already booted:
 bash scripts/test-ndos-x-host.sh booted
-bash scripts/test-ndos-x-guest-mouse.sh booted
+bash scripts/test-ndos-x-guest-mouse.sh booted true
+bash scripts/test-ndos-x-guest-mouse.sh booted omitted
+bash scripts/test-ndos-x-menu.sh booted
+python3 scripts/test-settings-ui.py --destination 'platform=iOS Simulator,id=DEVICE_UUID' \
+    --host nDOS-X --source Experimental/Tests/menu-ui-check.m \
+    --test-name EngineMenuTests --derived-data output/ndos-x-menu-ui
 ```
 
-The real-host Simulator checks exercise pending key releases across nested settings/scene/view pause reasons, repeated characters, modifier ordering, fractional mouse motion, copied frame ownership, and stop while paused. Preparation fixtures cover added/deleted patch files, idempotency, unexpected index/working-tree/untracked changes, and verified reversal for updates.
+The real-engine menu check verifies hierarchy, CPU cycles, renderer frameskip, mixer state, hidden/disabled command rejection, and suppression of the SDL menu. The hosted UIKit check exercises navigation, checkmark updates, disabled explanations, dismissal, and stop. The real-host Simulator checks exercise paused menu requests, snapshot ownership, stale sessions, cancellation on stop, pending key releases across nested settings/scene/view pause reasons, repeated characters, modifier ordering, fractional mouse motion, copied frame ownership, and stop while paused. Preparation fixtures cover added/deleted patch files, idempotency, unexpected index/working-tree/untracked changes, and verified reversal for updates.
 
 The profile checks cover default creation and preservation, uppercase compatibility, discovery and sorting, remembered-selection fallback, deleted/unreadable files, and default-versus-custom launch arguments.
 
