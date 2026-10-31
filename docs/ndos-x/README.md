@@ -27,7 +27,7 @@ Keyboard and relative pointer transitions are queued for the worker. Keyboard tr
 
 The default profile maps guest DOS drive C to the experimental app's `Documents/dos` directory. Its configuration is copied to `Documents/config/ndos-x.conf` on first launch and preserved on subsequent launches; an existing uppercase `NDOS-X.CONF` copy is also recognized. Use copied disk/CD images in this app's own sandbox for Windows configurations. The initial configuration supplies Pentium MMX, 128 MB, S3 graphics, SB16, BIOS PS/2 services, and IDE controllers. Windows 98 SE and Microsoft Plus! 98 have been confirmed tested and working by the project author. Windows disk images and installation media must be supplied and configured separately; the launcher does not create or attach them automatically.
 
-Package reopening, media-mount controls, controller options, direct touch, and Pencil shortcuts are unavailable in the initial experiment. Relative touch pointing, keyboard, mouse buttons, supported display controls, and settings remain available. Gamepad parity, live media changes, saved states, and machine-management UI are deferred.
+Package reopening, general media-mount controls, controller options, direct touch, and Pencil shortcuts are unavailable in the initial experiment. Relative touch pointing, keyboard, mouse buttons, supported display controls, and settings remain available. Gamepad parity, other live media changes, saved states, and machine-management UI are deferred. Live ISO replacement and disc ejection in existing CD-ROM drives are available through Engine Menu.
 
 ## Choose a machine configuration
 
@@ -51,11 +51,30 @@ Switching configurations requires a full app relaunch. Shut down Windows inside 
 
 Tap **Engine Menu** (the list icon) in the landscape toolbar or the portrait control strip. In portrait, this replaces the unavailable controller-mapping button. The native sheet follows DOSBox-X's own menu hierarchy, labels, ordering, and checkmarks. Browse categories and submenus, select an action, and keep browsing; tap **Done** or dismiss the sheet to return to the guest.
 
-This version enables CPU speed presets, video frameskip, sound mute, and stereo swap. Other commands remain visible but disabled with an explanation. Desktop dialogs, file pickers, capture, configuration saving, restart, shutdown, and other command families are deferred. Changes affect the running session; the menu does not save changes to the selected profile.
+This version enables CPU speed presets, video frameskip, sound mute, stereo swap, ISO replacement, and disc ejection in configured CD-ROM drives. Other commands remain visible but disabled with an explanation. Desktop dialogs, external file pickers, capture, configuration saving, restart, shutdown, and other command families are deferred. Changes affect the running session; the menu does not save changes to the selected profile.
 
 Opening the sheet releases held input and pauses guest execution and audio. A separate worker control queue obtains immutable menu snapshots and dispatches supported upstream commands while the guest stays paused. Closing the menu removes only its own pause reason, so an inactive scene or another pause still keeps the guest paused. All live menu traversal and command dispatch happen on the engine worker; UIKit receives copied state. Closed sessions and engine stop invalidate pending results.
 
 The host disables DOSBox-X's SDL desktop menu regardless of `showmenu` in the profile, while retaining its model for the native sheet. Profiles with `showmenu=true` or no `showmenu` entry therefore no longer enter the blocking desktop menu handler on guest clicks. Keep `autolock=false` in custom profiles so the first click is not consumed by desktop mouse capture. The earlier workaround `showmenu=false` remains harmless. Physical iPad menu and mouse confirmation remains a device acceptance check.
+
+## Change CDs while software is running
+
+Copy ISO files into the nDOS-X folder using Files; subfolders are supported. In **Engine Menu → Drive → the CD-ROM drive → Mount a disk or CD image file**, browse to an ISO and select it. This replaces the disc in that drive while DOS or Windows remains running. The guest stays paused during browsing and replacement; close Engine Menu to resume. Cancel returns to the menu without changing media. A failed replacement displays an error and keeps the previous disc selected. Keep source images inside the app folder.
+
+Choose **Engine Menu → Drive → the CD-ROM drive → Eject disc** to remove its media. This leaves an empty CD-ROM drive in both built-in DOS and booted Windows, so you can select another ISO in the same session. Ejection acts immediately without confirmation; choosing it again leaves the tray empty. Close Engine Menu to let the guest detect the change. Other drives are unaffected, and ejecting does not delete the ISO file. An eject failure appears in the menu status and preserves the previous disc.
+
+A CD-ROM drive must be configured before the session starts. Add a mount to the chosen profile’s `[autoexec]` section, before any `boot` command. For an initially empty drive:
+
+```ini
+[autoexec]
+imgmount d empty -t iso
+```
+
+Alternatively, start with an image using `imgmount d "images/disc1.iso" -t iso`. Keep existing hard-disk mounts and boot commands in the profile. This feature replaces media in an existing drive; it does not add hardware to a running guest. Hard disks and vacant drive letters cannot receive replacements. IDE-only CD-ROM devices use their controller/slot menu entries; Windows may assign a different drive letter from the engine’s label.
+
+No additional swap setting is needed. The default profile already enables primary and secondary IDE controllers; custom Windows profiles must enable the controller hosting their CD-ROM drive. DOSBox-X’s default `cd-rom insertion delay=0` selects its built-in 4000 ms delay, recommended for Windows 95/98 detecting media changes. After resuming Windows, allow several seconds for detection. Built-in DOS supplies CD support; booted MS-DOS needs its own CD-ROM driver and MSCDEX.
+
+The first version accepts one ISO at a time from inside the app’s Documents folder. External providers, CUE/BIN files, configured-disc cycling, and creating new CD-ROM drives during a session are not supported. See the [upstream image guide](https://dosbox-x.com/wiki/Guide:Managing-image-files-in-DOSBox%E2%80%90X) for engine mounting behavior.
 
 ## Load files from the iPad Files app
 
@@ -82,7 +101,11 @@ python3 scripts/test-settings-ui.py --destination 'platform=iOS Simulator,id=DEV
     --test-name EngineMenuTests --derived-data output/ndos-x-menu-ui
 ```
 
-The real-engine menu check verifies hierarchy, CPU cycles, renderer frameskip, mixer state, hidden/disabled command rejection, and suppression of the SDL menu. The hosted UIKit check exercises navigation, checkmark updates, disabled explanations, dismissal, and stop. The real-host Simulator checks exercise paused menu requests, snapshot ownership, stale sessions, cancellation on stop, pending key releases across nested settings/scene/view pause reasons, repeated characters, modifier ordering, fractional mouse motion, copied frame ownership, and stop while paused. Preparation fixtures cover added/deleted patch files, idempotency, unexpected index/working-tree/untracked changes, and verified reversal for updates.
+The real-engine menu check also verifies live ISO replacement, disc ejection with hardware retained, repeated eject and reinsertion in DOS and the booted-guest path, insertion into an empty drive, IDE-only targets, corrupt/missing-image recovery (including moved active media), independent CD drives, app-local path restrictions, stale sessions, stop, and the booted-guest replacement branch using generated media. It does not replace physical-device DOS/Windows acceptance.
+
+The real-engine menu check verifies hierarchy, CPU cycles, renderer frameskip, mixer state, hidden/disabled command rejection, and suppression of the SDL menu. The hosted UIKit check exercises the Eject disc label, immediate invocation, subsequent ISO insertion, ISO browsing in subfolders, cancellation, ISO-only filtering, native mount-error presentation, navigation, checkmark updates, disabled explanations, dismissal, and stop. The real-host Simulator checks exercise paused menu requests, snapshot ownership, stale sessions, cancellation on stop, pending key releases across nested settings/scene/view pause reasons, repeated characters, modifier ordering, fractional mouse motion, copied frame ownership, and stop while paused. Preparation fixtures cover added/deleted patch files, idempotency, unexpected index/working-tree/untracked changes, and verified reversal for updates.
+
+Live ISO replacement and disc ejection passed the real-engine and hosted UIKit checks on an iOS 18.2 iPad Simulator, along with host lifecycle and patch-preparation checks. An unsigned physical-device Release build also passed. Ejection and reinsertion with a running DOS game and Windows 98 must still be checked on a physical iPad; the automated booted-guest branch check does not establish Windows compatibility.
 
 The profile checks cover default creation and preservation, uppercase compatibility, discovery and sorting, remembered-selection fallback, deleted/unreadable files, and default-versus-custom launch arguments.
 

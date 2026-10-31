@@ -11,6 +11,9 @@ extern "C" int ndos_x_engine_menu_snapshot(ndos_x_menu_visitor visitor, void *co
     return 0;
 }
 extern "C" int ndos_x_engine_menu_invoke(const char *name) {
+    if (!strcmp(name,"drive_D_unmount")) return 4; // Deterministic eject failure.
     if (strcmp(name,"mixer_mute")) return 2;
     muted=!muted;return 0;
 }
+
+extern "C" int ndos_x_engine_menu_replace_iso(const char *, const char *) { return 2; }

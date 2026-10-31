@@ -1,0 +1,300 @@
+diff --git a/include/ndos_x_menu.h b/include/ndos_x_menu.h
+--- a/include/ndos_x_menu.h
++++ b/include/ndos_x_menu.h
+@@ -11,11 +11,15 @@
+     int type; /* 0 action, 1 submenu, 2/3 separator */
+     int enabled;
+     int checked;
++    int iso_picker; /* native replacement action; never dispatch a desktop picker */
+ };
+ typedef void (*ndos_x_menu_visitor)(const struct ndos_x_menu_entry *, void *);
+ /* 0 success, 1 not ready, 2 unavailable command. */
+ int ndos_x_engine_menu_snapshot(ndos_x_menu_visitor visitor, void *context);
++/* Also returns 4 if a native CD eject fails; hardware and media are preserved. */
+ int ndos_x_engine_menu_invoke(const char *name);
++/* 0 success, 1 not ready, 2 ineligible target, 3 invalid image. */
++int ndos_x_engine_menu_replace_iso(const char *name, const char *path);
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/gui/menu.cpp b/src/gui/menu.cpp
+--- a/src/gui/menu.cpp
++++ b/src/gui/menu.cpp
+@@ -3668,6 +3668,10 @@
+ 
+ #ifdef NDOS_X_HOST
+ #include "ndos_x_menu.h"
++extern bool ndos_x_cd_target(const std::string &name);
++extern bool ndos_x_cd_eject_target(const std::string &name);
++extern bool ndos_x_eject_cd(const std::string &name);
++extern bool ndos_x_replace_iso(const std::string &name, const char *path);
+ 
+ namespace {
+ // Explicitly reviewed direct actions. Do not enable new upstream commands by default.
+@@ -3690,7 +3694,7 @@
+ 
+ bool ndos_menu_walk(const DOSBoxMenu::displaylist &list, unsigned int depth,
+                     bool ancestors_enabled, ndos_x_menu_visitor visitor, void *context,
+-                    const char *invoke_name) {
++                    const char *invoke_name, int *invoke_result = nullptr) {
+     // Menus are a tree upstream; bound recursion defensively for future changes.
+     if (depth > 32) return false;
+     for (const auto id : list.get_disp_list()) {
+@@ -3699,25 +3703,30 @@
+         if (item.is_hidden()) continue;
+         const bool enabled = ancestors_enabled && item.is_enabled();
+         const bool action = item.get_type() == DOSBoxMenu::item_type_id;
+-        const bool supported = ndos_menu_supported(item.get_name());
++        const bool picker = action && ndos_x_cd_target(item.get_name());
++        const bool eject = action && ndos_x_cd_eject_target(item.get_name());
++        const bool supported = picker || eject || ndos_menu_supported(item.get_name());
+         const char *reason = !enabled ? "Unavailable in the current engine state" :
+-            action && !supported ? "Not supported in nDOS-X yet" : "";
++            action && !supported ? (item.get_name().size() >= 9 && item.get_name().compare(item.get_name().size() - 9, 9, "_mountimg") == 0 ? "Requires an existing CD-ROM drive. Configure one before startup: imgmount d empty -t iso" : "Not supported in nDOS-X yet") : "";
+         if (visitor) {
+             const ndos_x_menu_entry entry = {
+-                item.get_name().c_str(), item.get_text().c_str(), reason,
++                item.get_name().c_str(), eject ? "Eject disc" : item.get_text().c_str(), reason,
+                 depth, static_cast<int>(item.get_type()),
+-                enabled && (!action || supported), item.is_checked()
++                enabled && (!action || supported), item.is_checked(), picker
+             };
+             visitor(&entry, context);
+         }
+         if (invoke_name && item.get_name() == invoke_name) {
+-            if (!action || !enabled || !supported) return false;
+-            mainMenu.dispatchItemCommand(item);
++            if (!action || !enabled || !supported || picker) return false;
++            if (eject) {
++                const int result = ndos_x_eject_cd(item.get_name()) ? 0 : 4;
++                if (invoke_result) *invoke_result = result;
++            } else mainMenu.dispatchItemCommand(item);
+             return true;
+         }
+         if (item.get_type() == DOSBoxMenu::submenu_type_id &&
+             ndos_menu_walk(item.display_list, depth + 1, enabled,
+-                           visitor, context, invoke_name)) return true;
++                           visitor, context, invoke_name, invoke_result)) return true;
+     }
+     return false;
+ }
+@@ -3732,6 +3741,19 @@
+ extern "C" int ndos_x_engine_menu_invoke(const char *name) {
+     if (mainMenu.display_list.get_disp_list().empty()) return 1;
+     if (!name) return 2;
+-    return ndos_menu_walk(mainMenu.display_list, 0, true, nullptr, nullptr, name) ? 0 : 2;
+-}
+-#endif
++    int result = 0;
++    return ndos_menu_walk(mainMenu.display_list, 0, true, nullptr, nullptr, name, &result) ? result : 2;
++}
++extern "C" int ndos_x_engine_menu_replace_iso(const char *name, const char *path) {
++    if (!name || !path) return 2;
++    struct Request { const char *name; bool eligible = false; } request{name};
++    const int result = ndos_x_engine_menu_snapshot([](const ndos_x_menu_entry *entry, void *context) {
++        auto &request = *static_cast<Request *>(context);
++        if (entry->enabled && entry->iso_picker && !strcmp(entry->name, request.name))
++            request.eligible = true;
++    }, &request);
++    if (result) return result;
++    if (!request.eligible) return 2;
++    return ndos_x_replace_iso(name, path) ? 0 : 3;
++}
++#endif
+diff --git a/src/hardware/ide.cpp b/src/hardware/ide.cpp
+--- a/src/hardware/ide.cpp
++++ b/src/hardware/ide.cpp
+@@ -3047,6 +3047,15 @@
+ 	return true;
+ }
+ 
++#ifdef NDOS_X_HOST
++// Existing ATAPI devices without a DOS drive association have their own menu rows.
++bool ndos_x_ide_cd_target(unsigned int index, bool slave) {
++    if (index >= MAX_IDE_CONTROLLERS || !idecontroller[index]) return false;
++    auto *cd = dynamic_cast<IDEATAPICDROMDevice *>(idecontroller[index]->device[slave ? 1 : 0]);
++    return cd && !cd->mscdex;
++}
++#endif
++
+ struct ide_opt_spec_t {
+ 	signed char index = -1;
+ 	bool slave = false;
+diff --git a/src/dos/dos_programs.cpp b/src/dos/dos_programs.cpp
+--- a/src/dos/dos_programs.cpp
++++ b/src/dos/dos_programs.cpp
+@@ -5727,6 +5727,9 @@
+ class IMGMOUNT : public Program {
+ 	public:
+ 		bool opt_replace = false;
++#ifdef NDOS_X_HOST
++        bool host_silent = false;
++#endif
+ 		std::vector<std::string> options;
+ 		IMGMOUNT(const unsigned int fl=0) : Program(fl) {
+ 		}
+@@ -7450,6 +7453,9 @@
+ 
+ 			if (ok) return true;
+ 
++#ifdef NDOS_X_HOST
++            if (host_silent) return false;
++#endif
+ 			WriteOut("Unable to attach to %s:%s\n",device_spec.c_str(),device_spec_opts.c_str());
+ 			return false;
+ 		}
+@@ -7470,6 +7476,9 @@
+ 			if (Drives[drive - 'A']) {
+ 				//For -replace, the drive to replace must be a CD-ROM drive already, or else don't allow it!
+ 				if (!MountIsoAllowReplace(drive)) {
++#ifdef NDOS_X_HOST
++                    if (host_silent) return false;
++#endif
+ 					if(is_menu || dos_kernel_disabled) {
+ 						std::string title = MSGX("ERROR");
+ 						std::string str(1, drive);
+@@ -7514,6 +7523,9 @@
+ 					for (ct = 0; ct < isoDisks.size(); ct++) {
+ 						delete isoDisks[ct];
+ 					}
++#ifdef NDOS_X_HOST
++                    if (host_silent) return false; // The native wrapper restores the original MSCDEX interface.
++#endif
+ 					if(is_menu || dos_kernel_disabled) {
+ 						std::string title = MSGX("ERROR");
+ #if defined(MACOSX)
+@@ -7570,6 +7582,9 @@
+ 					Drives[drive - 'A']->MediaChange(); // for IDE
+ 			}
+ 
++#ifdef NDOS_X_HOST
++            if (host_silent) return true;
++#endif
+ 			// Print status message (success)
+ 			if (!qmount && !dos_kernel_disabled && !is_menu) WriteOut(MSG_Get("MSCDEX_SUCCESS"));
+ 			if (!paths.empty()) {
+@@ -7822,6 +7837,88 @@
+ 	imgmount.cmd=new CommandLine("IMGMOUNT", "");
+ 	imgmount.MountIsoToDeviceSpec(device_spec.c_str(),device_spec_opts.c_str(),paths);
+ }
++
++#ifdef NDOS_X_HOST
++extern bool ndos_x_ide_cd_target(unsigned int index, bool slave);
++extern void IDE_ATAPI_MediaChangeNotify(signed char index, bool slave, bool immediate);
++extern uint8_t MSCDEX_GetSubUnit(char driveLetter);
++extern bool GetMSCDEXDriveBySubUnit(uint8_t unit, CDROM_Interface **cdrom);
++extern void MSCDEX_ReplaceDrive(CDROM_Interface *cdrom, uint8_t subUnit);
++
++namespace {
++bool ndos_x_dos_cd_name(const std::string &name) {
++    return name.size() == 16 && name.compare(0, 6, "drive_") == 0 &&
++        name[6] >= 'A' && name[6] <= 'Z' && name.compare(7, 9, "_mountimg") == 0;
++}
++bool ndos_x_ide_cd_name(const std::string &name) {
++    return name.size() == 19 && name.compare(0, 8, "IDEDrive") == 0 &&
++        name[8] >= '1' && name[8] <= '8' && (name[9] == 'm' || name[9] == 's') &&
++        name.compare(10, 9, "_mountimg") == 0;
++}
++}
++
++bool ndos_x_cd_target(const std::string &name) {
++    if (ndos_x_dos_cd_name(name))
++        return dynamic_cast<isoDrive *>(Drives[name[6] - 'A']) != nullptr;
++    return ndos_x_ide_cd_name(name) && ndos_x_ide_cd_target(name[8] - '1', name[9] == 's');
++}
++
++namespace {
++std::string ndos_x_eject_mount_target(const std::string &name) {
++    const std::string suffix = "_unmount";
++    if (name.size() < suffix.size() || name.compare(name.size() - suffix.size(), suffix.size(), suffix))
++        return {};
++    const std::string target = name.substr(0, name.size() - suffix.size()) + "_mountimg";
++    return ndos_x_cd_target(target) ? target : std::string();
++}
++
++bool ndos_x_change_cd_media(const std::string &name, const std::string &file) {
++    if (!ndos_x_cd_target(name)) return false;
++    // Console writes can re-enter the host event loop while the worker is paused.
++    struct QuietMount {
++        bool previous = qmount;
++        QuietMount() { qmount = true; }
++        ~QuietMount() { qmount = previous; }
++    } quiet;
++    IMGMOUNT imgmount(Program::prg_nopsp);
++    imgmount.cmd = new CommandLine("IMGMOUNT", "");
++    imgmount.opt_replace = true;
++    imgmount.host_silent = true;
++    if (ndos_x_dos_cd_name(name)) {
++        // Keep the original open media alive: constructors can update MSCDEX
++        // before filesystem validation. Recovery must not reopen a moved file.
++        const uint8_t subunit = MSCDEX_GetSubUnit(name[6]);
++        CDROM_Interface *previous = nullptr;
++        if (!GetMSCDEXDriveBySubUnit(subunit, &previous) || !previous) return false;
++        const bool ok = imgmount.MountIso(name[6], {file}, -1, false, false);
++        if (!ok) MSCDEX_ReplaceDrive(previous, subunit);
++        previous->Release();
++        return ok;
++    }
++    const bool ok = imgmount.MountIsoToDeviceSpec("ide", name.substr(8, 2), {file});
++    if (ok) IDE_ATAPI_MediaChangeNotify(static_cast<signed char>(name[8] - '1'), name[9] == 's', false);
++    return ok;
++}
++}
++
++bool ndos_x_replace_iso(const std::string &name, const char *path) {
++    if (!path) return false;
++    const std::string file(path);
++    if (file.size() < 4 || strcasecmp(file.c_str() + file.size() - 4, ".iso")) return false;
++    return ndos_x_change_cd_media(name, file);
++}
++
++bool ndos_x_cd_eject_target(const std::string &name) {
++    return !ndos_x_eject_mount_target(name).empty();
++}
++
++bool ndos_x_eject_cd(const std::string &name) {
++    const std::string target = ndos_x_eject_mount_target(name);
++    // Empty media keeps the CD device and its DOS association in place in both
++    // built-in DOS and booted guests. Never call the drive-removing Unmount path.
++    return !target.empty() && ndos_x_change_cd_media(target, "empty");
++}
++#endif
+ 
+ Bitu DOS_SwitchKeyboardLayout(const char* new_layout, int32_t& tried_cp);
+ Bitu DOS_LoadKeyboardLayout(const char * layoutname, int32_t codepage, const char * codepagefile);
+diff --git a/src/dos/drive_iso.cpp b/src/dos/drive_iso.cpp
+--- a/src/dos/drive_iso.cpp
++++ b/src/dos/drive_iso.cpp
+@@ -1172,9 +1172,18 @@
+ }
+ 
+ /* because of the way this ties into IDE emulation through MSCDEX emulation, this must stay */
++#ifdef NDOS_X_HOST
++extern bool qmount;
++#endif
++
+ int isoDrive::UpdateMscdex(char driveLetter, const char* path, uint8_t& subUnit) {
+-	if (MSCDEX_HasDrive(driveLetter))
++	if (MSCDEX_HasDrive(driveLetter)) {
++#ifdef NDOS_X_HOST
++        // A new replacement isoDrive starts with subUnit=0, which may be another drive.
++        subUnit = MSCDEX_GetSubUnit(driveLetter);
++#endif
+ 		return MSCDEX_UpdateDrive(driveLetter, path, subUnit);
++    }
+ 	else
+ 		return MSCDEX_AddDrive(driveLetter, path, subUnit);
+ }
+@@ -2271,7 +2280,11 @@
+ 			dataCD = true;
+ 			return true;
+ 		} else if (dos.version.major < 7 || (dos.version.major == 7 && dos.version.minor < 10)) {
+-			if (!dos_kernel_disabled) {
++			if (!dos_kernel_disabled
++#ifdef NDOS_X_HOST
++                && !qmount
++#endif
++            ) {
+ 				const char *msg = "Found UDF image which requires a reported DOS version of 7.10 to mount.\r\n";
+ 				uint16_t n = (uint16_t)strlen(msg);
+ 				DOS_WriteFile (STDOUT,(uint8_t *)msg, &n);

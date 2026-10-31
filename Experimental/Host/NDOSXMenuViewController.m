@@ -9,6 +9,103 @@
 @property(nonatomic) BOOL busy;
 @property(nonatomic) BOOL finished;
 @property(nonatomic, copy) NSString *status;
+- (void)replaceISO:(NSURL *)url target:(NSString *)target;
+@end
+
+// A local browser keeps mounted media in the app sandbox for the whole session.
+@interface NDOSXISOBrowser : UITableViewController
+@property(nonatomic, weak) NDOSXMenuViewController *menu;
+@property(nonatomic, weak) UIViewController *origin;
+@property(nonatomic, copy) NSString *target;
+@property(nonatomic, copy) NSURL *directory;
+@property(nonatomic, copy) NSURL *documents;
+@property(nonatomic, copy) NSArray<NSURL *> *entries;
+@end
+
+@implementation NDOSXISOBrowser
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title=[self.directory isEqual:self.documents] ? @"Choose ISO" : self.directory.lastPathComponent;
+    self.navigationItem.rightBarButtonItem=[[UIBarButtonItem alloc]
+        initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(cancel:)];
+}
+- (BOOL)isLocal:(NSURL *)url {
+    NSString *path=url.URLByResolvingSymlinksInPath.path;
+    NSString *root=self.documents.URLByResolvingSymlinksInPath.path;
+    return [path hasPrefix:[root stringByAppendingString:@"/"]];
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    NSError *error=nil;
+    NSArray<NSURL *> *urls=[NSFileManager.defaultManager contentsOfDirectoryAtURL:self.directory
+        includingPropertiesForKeys:@[NSURLIsDirectoryKey,NSURLIsRegularFileKey]
+        options:NSDirectoryEnumerationSkipsHiddenFiles error:&error];
+    NSMutableArray *entries=[NSMutableArray array];
+    for (NSURL *url in urls) {
+        if (![self isLocal:url]) continue;
+        NSNumber *folder=nil,*regular=nil;
+        [url getResourceValue:&folder forKey:NSURLIsDirectoryKey error:nil];
+        [url getResourceValue:&regular forKey:NSURLIsRegularFileKey error:nil];
+        if (folder.boolValue || (regular.boolValue && [url.pathExtension.lowercaseString isEqualToString:@"iso"]))
+            [entries addObject:url];
+    }
+    self.entries=[entries sortedArrayUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) {
+        return [a.lastPathComponent localizedStandardCompare:b.lastPathComponent];
+    }];
+    UILabel *message=[[UILabel alloc] initWithFrame:CGRectMake(0,0,320,80)];
+    message.text=error ? @"This folder could not be read. Go back and choose another folder." :
+        @"Choose one ISO. Copy images into the nDOS-X folder using Files. The guest stays paused until you close Engine Menu.";
+    message.numberOfLines=0;message.textAlignment=NSTextAlignmentCenter;
+    message.font=[UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    message.adjustsFontForContentSizeCategory=YES;message.textColor=UIColor.secondaryLabelColor;
+    self.tableView.tableHeaderView=message;
+    [self.tableView reloadData];
+}
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return self.entries.count;
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:@"iso"];
+    if (!cell) cell=[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"iso"];
+    NSURL *url=self.entries[indexPath.row];NSNumber *folder=nil;
+    [url getResourceValue:&folder forKey:NSURLIsDirectoryKey error:nil];
+    cell.textLabel.text=url.lastPathComponent;cell.textLabel.numberOfLines=0;
+    cell.textLabel.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    cell.textLabel.adjustsFontForContentSizeCategory=YES;
+    cell.accessoryType=folder.boolValue ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
+    return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (self.menu.busy || self.menu.finished) return;
+    NSURL *url=self.entries[indexPath.row];NSNumber *folder=nil;
+    if (![self isLocal:url]) return;
+    [url getResourceValue:&folder forKey:NSURLIsDirectoryKey error:nil];
+    if (folder.boolValue) {
+        NDOSXISOBrowser *child=[[NDOSXISOBrowser alloc] initWithStyle:UITableViewStyleInsetGrouped];
+        child.menu=self.menu;child.origin=self.origin;child.target=self.target;
+        child.documents=self.documents;child.directory=url;
+        [self.navigationController pushViewController:child animated:YES];
+    } else {
+        NDOSXMenuViewController *menu=self.menu;
+        NSString *target=self.target;
+        UINavigationController *navigation=self.navigationController;
+        [navigation popToViewController:self.origin animated:YES];
+        // An immediate worker error must not present an alert from a menu whose
+        // view is still detached during the browser's navigation transition.
+        id<UIViewControllerTransitionCoordinator> transition=navigation.transitionCoordinator;
+        if (transition) {
+            [transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+                [menu replaceISO:url target:target];
+            }];
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{ [menu replaceISO:url target:target]; });
+        }
+    }
+}
+- (void)cancel:(id)sender {
+    [self.navigationController popToViewController:self.origin animated:YES];
+}
 @end
 
 @implementation NDOSXMenuViewController
@@ -118,12 +215,38 @@
         child.menuRoot=root;child.submenuName=item.name;child.title=item.title;
         [self.navigationController pushViewController:child animated:YES];
     } else if (item.enabled) {
+        if (item.isoPicker) {
+            NDOSXISOBrowser *browser=[[NDOSXISOBrowser alloc] initWithStyle:UITableViewStyleInsetGrouped];
+            browser.menu=root;browser.origin=self;browser.target=item.name;
+            browser.documents=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory
+                inDomains:NSUserDomainMask].firstObject.URLByResolvingSymlinksInPath;
+            browser.directory=browser.documents;
+            [self.navigationController pushViewController:browser animated:YES];
+            return;
+        }
         root.busy=YES;root.status=@"Applying change…";[root reloadControllers];
         __weak NDOSXMenuViewController *weakRoot=root;
         ndos_x_menu_invoke(root.session,item.name,^(NSArray<NDOSXMenuItem *> *items, NSError *error) {
             [weakRoot receivedItems:items error:error];
         });
     }
+}
+- (void)replaceISO:(NSURL *)url target:(NSString *)target {
+    NDOSXMenuViewController *root=self.root;
+    if (root.busy || root.finished) return;
+    root.busy=YES;root.status=@"Changing disc…";[root reloadControllers];
+    __weak NDOSXMenuViewController *weakRoot=root;
+    ndos_x_menu_replace_iso(root.session,target,url,^(NSArray<NDOSXMenuItem *> *items, NSError *error) {
+        NDOSXMenuViewController *owner=weakRoot;
+        if (!owner || owner.finished) return;
+        [owner receivedItems:items error:error];
+        if (error) {
+            UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Could not change disc"
+                message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [owner.navigationController.topViewController presentViewController:alert animated:YES completion:nil];
+        }
+    });
 }
 - (void)done:(id)sender {
     NDOSXMenuViewController *root=self.root;

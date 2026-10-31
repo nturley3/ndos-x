@@ -10,6 +10,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) NSInteger type; // action=0, submenu=1, separator=2/3
 @property(nonatomic, readonly) BOOL enabled;
 @property(nonatomic, readonly) BOOL checked;
+@property(nonatomic, readonly) BOOL isoPicker;
 @property(nonatomic, copy, readonly) NSString *unavailableReason;
 @property(nonatomic, copy, readonly) NSArray<NDOSXMenuItem *> *children;
 @end
@@ -24,6 +25,8 @@ extern "C" {
 NDOSXMenuSession ndos_x_menu_open(NDOSXMenuCompletion completion);
 void ndos_x_menu_refresh(NDOSXMenuSession session, NDOSXMenuCompletion completion);
 void ndos_x_menu_invoke(NDOSXMenuSession session, NSString *name, NDOSXMenuCompletion completion);
+// Replaces one existing CD drive's media with an ISO inside the app's Documents directory.
+void ndos_x_menu_replace_iso(NDOSXMenuSession session, NSString *target, NSURL *url, NDOSXMenuCompletion completion);
 void ndos_x_menu_close(NDOSXMenuSession session);
 #ifdef __cplusplus
 }

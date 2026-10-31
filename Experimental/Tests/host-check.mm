@@ -80,6 +80,8 @@ int main() {@autoreleasepool {
  require(!menuFailure && menuItems[0].children[0].checked,"menu command updates snapshot");
  require(!((NDOSXMenuItem *)((NDOSXMenuItem *)original[0]).children[0]).checked,"old snapshot immutable");
  ndos_x_menu_invoke(menu,@"mapper_gui",completion);waitMenu();require(menuFailure!=nil,"unsupported command rejected");
+ ndos_x_menu_invoke(menu,@"drive_D_unmount",completion);waitMenu();
+ require([menuFailure.localizedDescription containsString:@"could not be ejected"],"eject failure has operation-specific error");
  ndos_x_menu_invoke(menu,@"missing",completion);waitMenu();require(menuFailure!=nil,"missing command rejected");
  ndos_x_set_scene_paused(1);require(menuWorker.get()==0,"nested scene pause delivers releases");drain();
  menuWorker=std::async(std::launch::async,[]{return ndos_x_host_poll();});

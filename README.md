@@ -11,7 +11,7 @@ The project is under active development. Moving to DOSBox-X gives me a foundatio
 - Copy programs, disk images, and configuration files through the Files app.
 - Choose separate machine configurations for different software and operating systems.
 
-Most testing currently takes place on iPad, with more iPhone testing and refinement still needed. A good experience on both iPadOS and iOS remains a goal. Some original nDOS features, including Apple Pencil shortcuts, package reopening, and media-mount controls, are still pending in nDOS-X. Switching machine configurations currently requires a full app relaunch. See the [detailed guide](docs/ndos-x/README.md) for setup instructions, current limitations, and known issues.
+Most testing currently takes place on iPad, with more iPhone testing and refinement still needed. A good experience on both iPadOS and iOS remains a goal. Some original nDOS features, including Apple Pencil shortcuts, package reopening, and general media-mount controls, are still pending in nDOS-X. Live ISO replacement and disc ejection in configured CD-ROM drives are available through Engine Menu. Switching machine configurations currently requires a full app relaunch. See the [detailed guide](docs/ndos-x/README.md) for setup instructions, current limitations, and known issues.
 
 ## Tested Operating Systems and Software
 
