@@ -225,7 +225,7 @@ static BOOL engineAttempted;
 //MARK: - SDL Input/Output
 - (BOOL)canMountImage
 {
-    return NO; // Media is attached before boot in this experiment.
+    return NO; // Shell-command mounting is unavailable; Engine Menu handles live ISO replacement.
 }
 
 - (void)sendImageMountCommand:(NSString *)cmd completion:(void (^)(BOOL))completion

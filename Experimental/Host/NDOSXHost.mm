@@ -209,7 +209,7 @@ extern "C" int SDL_main(int, char **) {NSLog(@"nDOS-X owns startup through its h
     if ((self=[super init])) {
         _name=[record[@"name"] copy];_title=[record[@"title"] copy];
         _type=[record[@"type"] integerValue];_enabled=[record[@"enabled"] boolValue];
-        _checked=[record[@"checked"] boolValue];_unavailableReason=[record[@"reason"] copy];
+        _checked=[record[@"checked"] boolValue];_isoPicker=[record[@"isoPicker"] boolValue];_unavailableReason=[record[@"reason"] copy];
         _children=[children copy];
     }
     return self;
@@ -230,7 +230,7 @@ void copyMenuEntry(const ndos_x_menu_entry *entry, void *context) {
     };
     [records addObject:@{@"name":copyString(entry->name), @"title":copyString(entry->text),
         @"reason":copyString(entry->unavailable_reason), @"depth":@(entry->depth),
-        @"type":@(entry->type), @"enabled":@(entry->enabled), @"checked":@(entry->checked)}];
+        @"type":@(entry->type), @"enabled":@(entry->enabled), @"checked":@(entry->checked), @"isoPicker":@(entry->iso_picker)}];
 }
 NSArray<NDOSXMenuItem *> *menuTree(NSArray *records, NSUInteger &index, NSUInteger depth) {
     NSMutableArray *items=[NSMutableArray array];
@@ -254,23 +254,53 @@ void completeMenu(NDOSXMenuSession session, NDOSXMenuCompletion completion,
         completion(resultError ? @[] : items,resultError);
     });
 }
-void enqueueMenu(NDOSXMenuSession session, NSString *name, NDOSXMenuCompletion completion) {
+NSString *localISOPath(NSURL *url) {
+    if (!url.isFileURL || ![url.pathExtension.lowercaseString isEqualToString:@"iso"]) return nil;
+    NSString *root=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask]
+        .firstObject.URLByResolvingSymlinksInPath.path;
+    NSString *path=url.URLByResolvingSymlinksInPath.path;
+    if (!root || ![path hasPrefix:[root stringByAppendingString:@"/"]] ||
+        ![path.pathExtension.lowercaseString isEqualToString:@"iso"]) return nil;
+    NSDictionary *attributes=[NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+    if (![attributes[NSFileType] isEqual:NSFileTypeRegular] ||
+        ![NSFileManager.defaultManager isReadableFileAtPath:path]) return nil;
+    return path;
+}
+void enqueueMenu(NDOSXMenuSession session, NSString *name, NSURL *url, NDOSXMenuCompletion completion) {
     NSCAssert(NSThread.isMainThread,@"Menu requests belong to UIKit");
     NSString *command=[name copy];
+    NSURL *image=[url copy];
     NDOSXMenuCompletion reply=[completion copy];
-    auto request=[session,command,reply](bool running) {
+    auto request=[session,command,image,reply](bool running) {
         bool valid;
         {
             std::lock_guard<std::mutex> lock(stateMutex);
             valid=running && !stopping && session && menuSession==session;
         }
         if (!valid) { completeMenu(session,reply,@[],menuError(4,@"Menu unavailable."));return; }
-        int result=command ? ndos_x_engine_menu_invoke(command.UTF8String) : 0;
+        NSString *path=image ? localISOPath(image) : nil;
+        if (image && !path) {
+            completeMenu(session,reply,@[],menuError(5,@"Choose a readable ISO file inside the nDOS-X folder."));
+            return;
+        }
+        // The upstream CD loader uses CROSS_LEN (512-byte) filename buffers.
+        if (image && strlen(path.fileSystemRepresentation)>=512) {
+            completeMenu(session,reply,@[],menuError(5,@"The ISO path is too long. Move it closer to the nDOS-X folder and try again."));
+            return;
+        }
+        // File metadata may involve I/O; revalidate after it, before entering the engine.
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            valid=!stopping && session && menuSession==session;
+        }
+        if (!valid) { completeMenu(session,reply,@[],menuError(4,@"Menu unavailable."));return; }
+        int result=image ? ndos_x_engine_menu_replace_iso(command.UTF8String,path.fileSystemRepresentation) :
+            command ? ndos_x_engine_menu_invoke(command.UTF8String) : 0;
         NSMutableArray *records=[NSMutableArray array];
         if (!result) result=ndos_x_engine_menu_snapshot(copyMenuEntry,(__bridge void *)records);
         NSUInteger index=0;
         NSArray *items=result ? @[] : menuTree(records,index,0);
-        NSError *error=result ? menuError(result,result==1 ? @"The engine menu is not ready. Close and reopen it after startup." :
+        NSError *error=result ? menuError(result,result==4 ? @"The disc could not be ejected. The previous disc remains selected." : result==3 ? @"The ISO could not be loaded. The previous disc remains selected." : result==1 ? @"The engine menu is not ready. Close and reopen it after startup." :
             @"This command is unavailable in nDOS-X or in the current engine state.") : nil;
         completeMenu(session,reply,items,error);
     };
@@ -295,14 +325,17 @@ NDOSXMenuSession ndos_x_menu_open(NDOSXMenuCompletion completion) {
             releaseLocked();pauseReasons|=menuPause;
         }
     }
-    enqueueMenu(session,nil,completion);
+    enqueueMenu(session,nil,nil,completion);
     return session;
 }
 void ndos_x_menu_refresh(NDOSXMenuSession session, NDOSXMenuCompletion completion) {
-    enqueueMenu(session,nil,completion);
+    enqueueMenu(session,nil,nil,completion);
 }
 void ndos_x_menu_invoke(NDOSXMenuSession session, NSString *name, NDOSXMenuCompletion completion) {
-    enqueueMenu(session,name,completion);
+    enqueueMenu(session,name,nil,completion);
+}
+void ndos_x_menu_replace_iso(NDOSXMenuSession session, NSString *target, NSURL *url, NDOSXMenuCompletion completion) {
+    enqueueMenu(session,target,url,completion);
 }
 void ndos_x_menu_close(NDOSXMenuSession session) {
     NSCAssert(NSThread.isMainThread,@"Menu requests belong to UIKit");
