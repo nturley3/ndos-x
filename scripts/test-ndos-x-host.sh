@@ -11,6 +11,6 @@ xcrun --sdk iphonesimulator clang++ -target arm64-apple-ios15.4-simulator -isysr
     -I"$ndos_x_root/vendor/SDL2/include" "$ndos_x_root/Experimental/Tests/host-check.mm" \
     "$ndos_x_root/Experimental/Host/NDOSXHost.mm" "$ndos_x_root/Experimental/Tests/menu-engine-fixture.cpp" "$ndos_x_prefix/lib/libSDL2.a" \
     -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
-    -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework GameController \
+    -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework GameController -framework CoreMotion -framework CoreHaptics \
     -o "$ndos_x_binary"
 xcrun simctl spawn "$ndos_x_simulator" "$ndos_x_binary"

@@ -7,9 +7,11 @@ The project is under active development. Moving to DOSBox-X gives me a foundatio
 ## What you can do today
 
 - Run DOS games and programs with the DOSBox-X core.
-- Use keyboard input, touch-based mouse movement, and a connected mouse.
+- Use keyboard input, touch-based mouse movement, a connected mouse, and touch joystick/gamepad controls.
 - Copy programs, disk images, and configuration files through the Files app.
 - Choose separate machine configurations for different software and operating systems.
+
+For Windows 98 touch joystick setup, including the `sb16vibra` → `sb16` workaround for a **Not Connected** status, see the [touch-controls guide](docs/ndos-x/README.md#windows-98-joystick-shows-not-connected).
 
 Most testing currently takes place on iPad, with more iPhone testing and refinement still needed. A good experience on both iPadOS and iOS remains a goal. Some original nDOS features, including Apple Pencil shortcuts, package reopening, and general media-mount controls, are still pending in nDOS-X. Live ISO replacement and disc ejection in configured CD-ROM drives are available through Engine Menu. Switching machine configurations currently requires a full app relaunch. See the [detailed guide](docs/ndos-x/README.md) for setup instructions, current limitations, and known issues.
 

@@ -1,0 +1,46 @@
+diff --git a/src/gui/sdlmain.cpp b/src/gui/sdlmain.cpp
+--- a/src/gui/sdlmain.cpp
++++ b/src/gui/sdlmain.cpp
+@@ -3310,6 +3310,10 @@
+ }
+ 
+ #ifdef NDOS_X_HOST
++#include "joystick.h"
++extern "C" int ndos_x_host_init_joystick(void);
++extern "C" void ndos_x_host_joystick_ready(int);
++extern "C" void ndos_x_host_shutdown_joystick(void);
+ extern "C" int ndos_x_host_poll(void);
+ extern "C" void ndos_x_host_present(const void *, int, int, int, unsigned int);
+ #endif
+@@ -9700,7 +9704,11 @@
+         /* -- -- Initialise Joystick and CD-ROM separately. This way we can warn when it fails instead of exiting the application */
+         LOG(LOG_MISC,LOG_DEBUG)("Initializing SDL joystick subsystem...");
+         glide.fullscreen = &sdl.desktop.fullscreen;
++#ifdef NDOS_X_HOST
++        if (ndos_x_host_init_joystick()) {
++#else
+         if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) >= 0) {
++#endif
+             sdl.num_joysticks = (Bitu)SDL_NumJoysticks();
+             LOG(LOG_MISC,LOG_DEBUG)("SDL reports %u joysticks",(unsigned int)sdl.num_joysticks);
+         }
+@@ -9968,6 +9976,9 @@
+ 
+         /* finally, the mapper */
+         MAPPER_Init();
++#ifdef NDOS_X_HOST
++        ndos_x_host_joystick_ready(JOYSTICK_IsEnabled(0) && joytype == JOY_2AXIS);
++#endif
+         AllocCallback2();
+         MSG_Init();
+ 
+@@ -10793,6 +10804,9 @@
+ #if defined(C_SDL2)
+         SDL_CDROMQuit();
+ #endif
++#ifdef NDOS_X_HOST
++        ndos_x_host_shutdown_joystick();
++#endif
+         SDL_Quit();//Let's hope sdl will quit as well when it catches an exception
+ 
+ #if defined(WIN32) && !defined(HX_DOS) && !defined(_WIN32_WINDOWS)

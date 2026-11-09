@@ -61,7 +61,7 @@ static BOOL engineAttempted;
 
 @interface DOSPadEmulator ()
 {
-    SDL_Joystick *_joystick[4];
+
 }
 
 - (void)didCommandDone;
@@ -153,7 +153,26 @@ static BOOL engineAttempted;
     _dospadConfigFile  = [self ensureConfigFile:@"dospad.cfg"];
     _uiConfigFile      = [self ensureConfigFile:@"ui.cfg"];
     _mfiConfigFile     = [self ensureConfigFile:@"mfi.cfg"];
-    _gamepadConfigFile = [self ensureConfigFile:@"gamepad.cfg"];
+    NDOSXProfiles *profiles=[[NDOSXProfiles alloc] initWithDocumentsDirectory:self.diskcDirectory];
+    NSError *mappingError=nil;
+    _gamepadConfigFile=[profiles gamepadPathForConfiguration:self.ndosXConfigPath
+        sharedPath:[self ensureConfigFile:@"gamepad.cfg"]
+        bundledPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"configs/gamepad.cfg"] error:&mappingError];
+    if (!_gamepadConfigFile) {
+        UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Could not load gamepad mappings"
+            message:mappingError.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        for (UIWindowScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState!=UISceneActivationStateForegroundActive) continue;
+            for (UIWindow *window in scene.windows) if (window.isKeyWindow) {
+                UIViewController *presenter=window.rootViewController;
+                while (presenter.presentedViewController) presenter=presenter.presentedViewController;
+                [presenter presentViewController:alert animated:YES completion:nil];
+                break;
+            }
+        }
+        return;
+    }
 
     strcpy(diskc, self.diskcDirectory.UTF8String);
     //strcpy(diskd, "/var/mobile/Documents");
@@ -299,27 +318,21 @@ static BOOL engineAttempted;
 //MARK: - SDL Joystick
 - (BOOL)ensureJoystick:(NSInteger)index
 {
-    return NO;
+    return index==0 && ndos_x_joystick_status()==2;
 }
 
 
 - (void)updateJoystick:(NSInteger)index x:(float)x y:(float)y
 {
-    // Controller parity is deferred.
+    if (index==0) ndos_x_send_joystick_motion(x,-y);
 }
 
 - (void)joystickButton:(NSInteger)buttonIndex pressed:(BOOL)pressed joystickIndex:(NSInteger)index
 {
-    // Controller parity is deferred.
+    if (index==0) ndos_x_send_joystick_button((int)buttonIndex,pressed);
 }
 
-- (void)dealloc
-{
-    for (int i = 0;  i < sizeof(_joystick)/sizeof(_joystick[0]); i++)
-    {
-        SDL_JoystickClose(_joystick[i]);
-    }
-}
+
 
 //MARK: - SDL Keyboard
 - (void)disableSDLKeyboardInput

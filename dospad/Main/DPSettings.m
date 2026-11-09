@@ -68,7 +68,7 @@ static BOOL isTimedToolbarDelay(id value)
 	_preferenceSpecifiers = settingsDict[@"PreferenceSpecifiers"];
 #ifdef NDOS_X_HOST
     NSMutableArray *supported=[NSMutableArray array];
-    NSSet *deferred=[NSSet setWithArray:@[@"auto_open_last",@"gamepad_sound_enabled",@"mouse_abs_enable",@"double_tap_as_right_click",@"joystick_enabled"]];
+    NSSet *deferred=[NSSet setWithArray:@[@"auto_open_last",@"mouse_abs_enable",@"double_tap_as_right_click",@"joystick_enabled"]];
     for(NSDictionary *item in _preferenceSpecifiers) if(!item[@"Key"] || ![deferred containsObject:item[@"Key"]]) [supported addObject:item];
     _preferenceSpecifiers=supported;
 #endif
