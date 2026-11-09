@@ -12,7 +12,7 @@ xcrun --sdk iphonesimulator clang++ -target arm64-apple-ios15.4-simulator -isysr
     "$root/Experimental/Tests/guest-mouse-check.mm" "$root/Experimental/Host/NDOSXHost.mm" \
     "$root/output/ndos-x-engine/iphonesimulator-arm64/libdosbox-x.a" "$prefix/lib/libSDL2.a" "$prefix/lib/libpng16.a" \
     -lz -liconv -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
-    -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework GameController -o "$root/output/ndos-x-guest-mouse-check"
+    -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework GameController -framework CoreMotion -framework CoreHaptics -o "$root/output/ndos-x-guest-mouse-check"
 ndos_x_result=0
 xcrun simctl spawn "${1:-booted}" "$root/output/ndos-x-guest-mouse-check" "${2:-false}" > "$root/output/ndos-x-guest-mouse-result.log" 2>&1 || ndos_x_result=$?
 tail -8 "$root/output/ndos-x-guest-mouse-result.log"

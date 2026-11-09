@@ -6,7 +6,11 @@
 #include <vector>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 extern "C" int ndos_x_host_poll(void);
+extern "C" int ndos_x_host_init_joystick(void);
+extern "C" void ndos_x_host_joystick_ready(int);
+extern "C" void ndos_x_host_shutdown_joystick(void);
 extern "C" void ndos_x_host_present(const void *,int,int,int,unsigned int);
 static void require(bool ok,const char *message) { if(!ok){fprintf(stderr,"FAIL: %s\n",message);exit(1);} }
 static std::vector<SDL_Event> drain() { std::vector<SDL_Event> out; SDL_Event e; while(SDL_PeepEvents(&e,1,SDL_GETEVENT,SDL_FIRSTEVENT,SDL_LASTEVENT)>0)out.push_back(e);return out; }
@@ -16,7 +20,31 @@ int main() {@autoreleasepool {
  std::thread([]{std::this_thread::sleep_for(std::chrono::seconds(20));fprintf(stderr,"FAIL: watchdog\n");_Exit(124);}).detach();
  SDL_SetMainReady();SDL_setenv("SDL_VIDEODRIVER","dummy",1);
  require(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS|SDL_INIT_TIMER)==0,SDL_GetError());
+ require(ndos_x_host_init_joystick(),"virtual joystick initializes");
+ require(SDL_NumJoysticks()==1,"one stable virtual joystick");
+ SDL_Joystick *joystick=SDL_JoystickOpen(0);
+ require(joystick && SDL_JoystickNumAxes(joystick)==2 && SDL_JoystickNumButtons(joystick)==2,"two axes and two buttons");
+ ndos_x_host_joystick_ready(0);require(ndos_x_joystick_status()==1,"disabled guest hardware reported");
  ndos_x_set_scene_paused(0);resetInput();
+ ndos_x_send_joystick_motion(1,1);ndos_x_send_joystick_button(0,1);collect(1);
+ require(SDL_JoystickGetAxis(joystick,0)==0 && SDL_JoystickGetButton(joystick,0)==0,"disabled joystick ignores input");
+ ndos_x_host_joystick_ready(1);require(ndos_x_joystick_status()==2,"ready guest hardware reported");
+ ndos_x_send_joystick_motion(-4,4);ndos_x_send_joystick_button(0,1);ndos_x_send_joystick_button(1,1);
+ require(SDL_JoystickGetAxis(joystick,0)==0,"producer does not mutate SDL state");
+ collect(1);
+ require(SDL_JoystickGetAxis(joystick,0)==-32768 && SDL_JoystickGetAxis(joystick,1)==32767,"polled axes clamp to full range with positive Y down");
+ require(SDL_JoystickGetButton(joystick,0) && SDL_JoystickGetButton(joystick,1),"simultaneous joystick buttons");
+ ndos_x_send_joystick_motion(std::numeric_limits<float>::quiet_NaN(),0);collect(1);
+ require(SDL_JoystickGetAxis(joystick,0)==-32768,"nonfinite input ignored");
+ ndos_x_send_joystick_button(0,0);ndos_x_set_settings_paused(1);
+ require(ndos_x_host_poll()==0,"joystick pause releases before blocking");drain();
+ require(SDL_JoystickGetAxis(joystick,0)==0 && SDL_JoystickGetAxis(joystick,1)==0 && !SDL_JoystickGetButton(joystick,0) && !SDL_JoystickGetButton(joystick,1),"pause recenters axes and releases pending/delivered buttons");
+ ndos_x_send_joystick_motion(1,1);ndos_x_send_joystick_button(1,1);
+ ndos_x_set_settings_paused(0);collect(1);
+ require(SDL_JoystickGetAxis(joystick,0)==0 && !SDL_JoystickGetButton(joystick,1),"paused input cannot latch on resume");
+ ndos_x_send_joystick_motion(.5f,-.5f);collect(1);resetInput();
+ require(SDL_JoystickGetAxis(joystick,0)==0,"overlay release recenters joystick");
+ puts("PASS: virtual joystick polled state, limits, buttons, worker delivery and pause/release");
  ndos_x_send_keyboard(0,SDL_PRESSED,SDL_SCANCODE_A);collect(1);
  ndos_x_send_keyboard(0,SDL_RELEASED,SDL_SCANCODE_A);
  ndos_x_set_settings_paused(1);ndos_x_set_scene_paused(1);
@@ -104,5 +132,8 @@ int main() {@autoreleasepool {
  ndos_x_menu_refresh(stoppingMenu,completion);
  ndos_x_request_stop();require(stopping.get()==1,"stop wakes paused worker");
  waitMenu();require(menuFailure!=nil,"stop cancels queued menu requests");
- puts("PASS: stop wakes paused worker and cancels menu requests");SDL_Quit();puts("ALL HOST CHECKS PASSED");return 0;
+ puts("PASS: stop wakes paused worker and cancels menu requests");
+ require(SDL_JoystickGetAxis(joystick,0)==0 && !SDL_JoystickGetButton(joystick,1),"stop neutralizes joystick");
+ SDL_JoystickClose(joystick);ndos_x_host_shutdown_joystick();
+ require(SDL_NumJoysticks()==0,"virtual device detached on teardown");SDL_Quit();puts("ALL HOST CHECKS PASSED");return 0;
 }}

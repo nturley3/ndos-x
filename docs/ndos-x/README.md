@@ -4,7 +4,7 @@ nDOS-X is developed independently in [nturley3/ndos-x](https://github.com/nturle
 
 ## Reproduce the build
 
-Use Xcode, CMake, and GNU Autoconf. The build script finds Homebrew tools if installed. If Automake is absent, it downloads GNU Automake 1.18.1, verifies its pinned SHA-256, and installs it only under ignored `output/ndos-x-tools`. The first build requires network access for that bootstrap. Current app configurations target ARM64 iOS and ARM64 Simulator.
+Use Xcode, CMake, and GNU Autoconf. The build script finds Homebrew tools if installed. When the dependency’s generated `configure` script is missing and Automake is absent, it downloads GNU Automake 1.18.1, verifies its pinned SHA-256, and installs it only under ignored `output/ndos-x-tools`. The first build requires network access for that bootstrap. Current app configurations target ARM64 iOS and ARM64 Simulator.
 
 ```sh
 git clone --recurse-submodules https://github.com/nturley3/ndos-x.git
@@ -23,11 +23,11 @@ Prepared engine files and its index intentionally contain the exact numbered hos
 
 The emulator runs on a worker thread. SDL2 uses its dummy video backend and CoreAudio services; the nDOS app owns its UIKit window and presentation. An upstream frame callback copies the guest software surface into a single latest-frame mailbox. A main-thread display link consumes it, including display-mode changes. Target-only compatibility headers retain the existing nDOS keyboard and controller source interfaces without importing private SDL1.3 UIKit objects into the experiment.
 
-Keyboard and relative pointer transitions are queued for the worker. Keyboard transitions are paced so repeated characters and modifiers reach the guest in order. Settings, the engine menu, scene inactivity, and view visibility have independent pause reasons; pausing cancels pending input and releases both held and worker-delivered states before blocking. Stop wakes a paused worker. Engine exit disables further input and displays a stopped session; restarting in the same process is deferred.
+Keyboard, relative pointer, and virtual joystick transitions are queued for the worker. Keyboard transitions are paced so repeated characters and modifiers reach the guest in order. Settings, the engine menu, scene inactivity, and view visibility have independent pause reasons; pausing cancels pending input and releases both held and worker-delivered states before blocking. Stop wakes a paused worker. Engine exit disables further input and displays a stopped session; restarting in the same process is deferred.
 
 The default profile maps guest DOS drive C to the experimental app's `Documents/dos` directory. Its configuration is copied to `Documents/config/ndos-x.conf` on first launch and preserved on subsequent launches; an existing uppercase `NDOS-X.CONF` copy is also recognized. Use copied disk/CD images in this app's own sandbox for Windows configurations. The initial configuration supplies Pentium MMX, 128 MB, S3 graphics, SB16, BIOS PS/2 services, and IDE controllers. Windows 98 SE and Microsoft Plus! 98 have been confirmed tested and working by the project author. Windows disk images and installation media must be supplied and configured separately; the launcher does not create or attach them automatically.
 
-Package reopening, general media-mount controls, controller options, direct touch, and Pencil shortcuts are unavailable in the initial experiment. Relative touch pointing, keyboard, mouse buttons, supported display controls, and settings remain available. Gamepad parity, other live media changes, saved states, and machine-management UI are deferred. Live ISO replacement and disc ejection in existing CD-ROM drives are available through Engine Menu.
+Package reopening, general media-mount controls, physical-controller options, direct touch, and Pencil shortcuts are unavailable in the initial experiment. Relative touch pointing, keyboard, mouse buttons, supported display controls, and settings remain available. Physical-controller parity, other live media changes, saved states, and machine-management UI are deferred. Live ISO replacement and disc ejection in existing CD-ROM drives are available through Engine Menu.
 
 ## Choose a machine configuration
 
@@ -47,9 +47,70 @@ The host working directory is `Documents`, so relative paths such as `dos` or `i
 
 Switching configurations requires a full app relaunch. Shut down Windows inside the guest before stopping the app. If a selected config disappears or cannot be read before Start, nDOS-X shows an error and refreshes the picker without starting the emulator.
 
+## Touch game controls
+
+On iPad in portrait, tap the **Touch controls** gamecontroller icon in the former floppy-drive position and choose **Keyboard Gamepad** or **Joystick**. **Hide controls** returns to the keyboard. In landscape, use **Gamepad** or **Joystick** in the landscape toolbar; tap the selected control again to dismiss it. Controls start hidden. Portrait puts controls below the guest; landscape puts translucent controls over the guest. Rotation releases input and recreates the layout with controls hidden. Engine Menu remains separately available in both orientations.
+
+**Keyboard Gamepad** sends configured keys or text and works without guest joystick hardware. The default D-pad sends arrow keys, and the action buttons send Ctrl, Enter, Alt, and Space. The mode button switches between the D-pad and analog stick. The edit button exposes button bindings, labels, and visibility; tap an action button or D-pad direction to edit its keyboard binding. Text bindings fire on release. In joystick mode, buttons **1** and **2** operate the guest joystick; the other buttons retain their keyboard bindings. To edit the underlying keyboard bindings for buttons 1/2, switch to Keyboard Gamepad. Opacity uses the existing floating-controls transparency setting.
+
+To enable the virtual joystick, edit the selected machine configuration through Files:
+
+```ini
+[joystick]
+joysticktype=2axis
+autofire=false
+```
+
+Shut down any guest OS, fully close nDOS-X, then relaunch with that configuration. Existing configurations are not rewritten, and the bundled default continues to use `joysticktype=none`. Selecting Joystick while hardware is unavailable explains how to enable it. This release supports one two-axis, two-button joystick; specialized modes, additional sticks, and physical controllers are deferred. iPad portrait and landscape are the acceptance targets; iPhone layouts remain preliminary.
+
+For a Windows 95/98 guest, open **Control Panel → Gaming Options → Add**, select **2-axis, 2-button joystick**, then open **Properties → Settings → Calibrate**. Show nDOS-X’s **Joystick** controls and use the stick and buttons **1/2** during calibration. Check movement and buttons on the **Test** tab, then enable joystick input within the application or game. The overlay cannot add joystick support to software that does not support a joystick; use Keyboard Gamepad instead.
+
+Mappings are saved per machine configuration: `config/Windows.conf` uses `config/Windows.gamepad.json`. First use copies the shared `config/gamepad.cfg` (including its legacy uppercase spelling), or bundled defaults if that file is missing or invalid JSON. Edits then affect only the selected configuration. Renaming a `.conf` creates a new mapping identity; rename its `.gamepad.json` companion as well to retain customized bindings. Files remain accessible through Files. The retained original build keeps its shared mapping file and original theme artwork.
+
+The host attaches an SDL virtual joystick before DOSBox-X enumerates devices and initializes its mapper. SDL joystick axes/buttons are updated only on the emulator worker, including the polled state consumed by the mapper. Physical SDL controller discovery is disabled for this integration. Cancelled touches, mode changes, hiding, editing, rotation, pause, backgrounding, and stop release held input and recenter the stick.
+
+### Windows 98 joystick shows “Not Connected”
+
+Windows 98 can detect **Gameport Joystick** in Device Manager without detecting the controller in Gaming Options. This was observed with `sbtype=sb16vibra`, a game-port resource range of `0200–0207`, and otherwise correct joystick settings. The project author confirmed that the following configuration workaround made the joystick work on the physical iPad:
+
+```ini
+[sblaster]
+sbtype=sb16
+
+[joystick]
+joysticktype=2axis
+autofire=false
+```
+
+1. Shut down Windows 98, then edit the selected `.conf` file to use `sb16` instead of `sb16vibra`.
+2. Fully close nDOS-X, relaunch it, and select that configuration.
+3. Let Windows detect the changed sound hardware. If necessary, run **Control Panel → Add New Hardware**.
+4. Check **Device Manager → Sound, video and game controllers → Gameport Joystick → Properties → Resources**. If needed, clear **Use automatic settings** and select a basic configuration using `0201–0201`.
+5. Return to **Gaming Options**, add the two-axis, two-button joystick if absent, and calibrate/test it with the onscreen Joystick controls.
+
+The same symptom and `sb16vibra` → `sb16` workaround are reported in [DOSBox-X issue #1877](https://github.com/joncampbell123/dosbox-x/issues/1877). This confirmation establishes Windows 98 joystick operation with the workaround; Windows 95, individual games, and persistence across further guest restarts still need separate checks.
+
+### Touch-control validation
+
+```sh
+bash scripts/test-ndos-x-profiles.sh
+bash scripts/test-ndos-x-host.sh SIMULATOR_UUID
+bash scripts/test-ndos-x-guest-joystick.sh SIMULATOR_UUID
+python3 scripts/test-settings-ui.py --host nDOS-X \
+  --source Experimental/Tests/touch-controls-ui-check.m --test-name TouchControlsTests \
+  --destination 'platform=iOS Simulator,id=IPAD_SIMULATOR_UUID' \
+  --derived-data output/ndos-x-touch-ui
+```
+
+Automated checks cover isolated mapping persistence, SDL axis limits and polled state, simultaneous buttons, lifecycle release, and a real DOS COM program reading joystick axes/buttons through BIOS INT 15h. iPad Simulator UI checks cover both orientations, hidden startup, control assets, multitouch button handling, cancellation, binding editor access, and Engine Menu access. Screenshots are retained in the XCTest result bundle.
+
+The project author confirmed Windows 98 joystick operation on the physical iPad after applying the sound-card/game-port workaround above. Windows 95 calibration, representative joystick and keyboard-controlled games, and broader physical iPad touch testing remain pending. The automated DOS diagnostics do not replace those checks.
+
+On 2026-11-08, nDOS-X Debug builds passed for ARM64 device and Simulator, and the retained iDOS Debug Simulator build passed. Profile, host input, DOS BIOS joystick, engine-menu, guest-mouse, and iPad Pro 11-inch (M4) portrait/landscape UI checks passed. This records automated build/Simulator evidence only.
+
 ## Engine menu
 
-Tap **Engine Menu** (the list icon) in the landscape toolbar or the portrait control strip. In portrait, this replaces the unavailable controller-mapping button. The native sheet follows DOSBox-X's own menu hierarchy, labels, ordering, and checkmarks. Browse categories and submenus, select an action, and keep browsing; tap **Done** or dismiss the sheet to return to the guest.
+Tap **Engine Menu** (the list icon) in the landscape toolbar or the portrait control strip. In portrait, the list icon retains its established position beside the keyboard/control panel. The native sheet follows DOSBox-X's own menu hierarchy, labels, ordering, and checkmarks. Browse categories and submenus, select an action, and keep browsing; tap **Done** or dismiss the sheet to return to the guest.
 
 This version enables CPU speed presets, video frameskip, sound mute, stereo swap, ISO replacement, and disc ejection in configured CD-ROM drives. Other commands remain visible but disabled with an explanation. Desktop dialogs, external file pickers, capture, configuration saving, restart, shutdown, and other command families are deferred. Changes affect the running session; the menu does not save changes to the selected profile.
 

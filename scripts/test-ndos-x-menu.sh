@@ -12,7 +12,7 @@ xcrun --sdk iphonesimulator clang++ -target arm64-apple-ios15.4-simulator -isysr
     "$ndos_x_root/Experimental/Tests/menu-check.mm" "$ndos_x_root/Experimental/Host/NDOSXHost.mm" \
     "$ndos_x_engine/libdosbox-x.a" "$ndos_x_prefix/lib/libSDL2.a" "$ndos_x_prefix/lib/libpng16.a" \
     -lz -liconv -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
-    -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework GameController \
+    -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework GameController -framework CoreMotion -framework CoreHaptics \
     -o "$ndos_x_root/output/ndos-x-menu-check"
 ndos_x_result=0
 xcrun simctl spawn "${1:-booted}" "$ndos_x_root/output/ndos-x-menu-check" > "$ndos_x_root/output/ndos-x-menu-result.log" 2>&1 || ndos_x_result=$?

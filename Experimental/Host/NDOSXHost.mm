@@ -10,9 +10,11 @@
 #include <array>
 #include <vector>
 #include <chrono>
+#include <cmath>
+#include <algorithm>
 
 namespace {
-struct Input { enum Kind { Key, Motion, Button } kind; int code; bool down; float x, y; unsigned int mod = 0; std::chrono::steady_clock::time_point ready{}; };
+struct Input { enum Kind { Key, Motion, Button, JoystickMotion, JoystickButton } kind; int code; bool down; float x, y; unsigned int mod = 0; std::chrono::steady_clock::time_point ready{}; };
 std::mutex stateMutex;
 std::condition_variable stateChanged;
 std::deque<Input> input;
@@ -21,6 +23,16 @@ std::array<bool, 9> heldButtons{};
 std::array<bool, SDL_NUM_SCANCODES> deliveredKeys{};
 std::array<bool, 9> deliveredButtons{};
 std::chrono::steady_clock::time_point nextKeyTime{};
+std::array<bool, 2> heldJoystickButtons{}, deliveredJoystickButtons{};
+SDL_Joystick *virtualJoystick = nullptr; // Accessed only on the emulator worker.
+int joystickStatus = 0; // Protected by stateMutex; UIKit never reads SDL state.
+void neutralizeJoystick() {
+    if (!virtualJoystick) return;
+    SDL_JoystickSetVirtualAxis(virtualJoystick, 0, 0);
+    SDL_JoystickSetVirtualAxis(virtualJoystick, 1, 0);
+    for (int button=0; button<2; button++) SDL_JoystickSetVirtualButton(virtualJoystick, button, 0);
+    SDL_JoystickUpdate();
+}
 constexpr unsigned int menuPause = 8;
 std::deque<std::function<void(bool)>> controls;
 NDOSXMenuSession menuSession = 0, nextMenuSession = 0;
@@ -51,6 +63,12 @@ void releaseLocked() {
     }
     for (int button=1;button<9;button++) if (heldButtons[button] || deliveredButtons[button]) {
         input.push_back({Input::Button,button,false,0,0}); heldButtons[button]=false;
+    }
+    input.push_back({Input::JoystickMotion,0,false,0,0});
+    for (int button=0; button<2; button++) {
+        if (heldJoystickButtons[button] || deliveredJoystickButtons[button])
+            input.push_back({Input::JoystickButton,button,false,0,0});
+        heldJoystickButtons[button]=false;
     }
     modifiers = static_cast<SDL_Keymod>(modifiers & (KMOD_CAPS|KMOD_NUM));
     releaseBeforePause = true;
@@ -91,6 +109,56 @@ extern "C" void ndos_x_send_mouse_button(int button, int pressed) {
     heldButtons[button]=!!pressed;
     input.push_back({Input::Button,button,!!pressed,0,0});
 }
+// Called at startup before DOSBox-X enumerates devices and constructs its mapper.
+extern "C" int ndos_x_host_init_joystick(void) {
+    SDL_SetHint(SDL_HINT_JOYSTICK_MFI, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (SDL_InitSubSystem(SDL_INIT_JOYSTICK)==0) {
+        int device=SDL_JoystickAttachVirtual(SDL_JOYSTICK_TYPE_UNKNOWN,2,2,0);
+        if (device>=0) {
+            virtualJoystick=SDL_JoystickOpen(device);
+            if (!virtualJoystick) SDL_JoystickDetachVirtual(device);
+        }
+    }
+    std::lock_guard<std::mutex> lock(stateMutex);
+    joystickStatus=virtualJoystick?0:-1;
+    if (!virtualJoystick) NSLog(@"nDOS-X virtual joystick unavailable: %s",SDL_GetError());
+    return virtualJoystick!=nullptr;
+}
+extern "C" void ndos_x_host_joystick_ready(int enabled) {
+    std::lock_guard<std::mutex> lock(stateMutex);
+    if (virtualJoystick) joystickStatus=enabled?2:1;
+}
+extern "C" void ndos_x_host_shutdown_joystick(void) {
+    neutralizeJoystick();
+    if (virtualJoystick) {
+        int device=-1;
+        for (int i=0; i<SDL_NumJoysticks(); i++)
+            if (SDL_JoystickGetDeviceInstanceID(i)==SDL_JoystickInstanceID(virtualJoystick)) {device=i;break;}
+        SDL_JoystickClose(virtualJoystick);virtualJoystick=nullptr;
+        if (device>=0) SDL_JoystickDetachVirtual(device);
+    }
+    std::lock_guard<std::mutex> lock(stateMutex);joystickStatus=0;
+}
+extern "C" int ndos_x_joystick_status(void) {
+    std::lock_guard<std::mutex> lock(stateMutex);return joystickStatus;
+}
+extern "C" void ndos_x_send_joystick_motion(float x, float y) {
+    if (!std::isfinite(x) || !std::isfinite(y)) return;
+    x=std::max(-1.f,std::min(1.f,x));y=std::max(-1.f,std::min(1.f,y));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    if (pauseReasons || stopping || joystickStatus!=2) return;
+    if (!input.empty() && input.back().kind==Input::JoystickMotion) {input.back().x=x;input.back().y=y;}
+    else input.push_back({Input::JoystickMotion,0,false,x,y});
+}
+extern "C" void ndos_x_send_joystick_button(int button, int pressed) {
+    if (button<0 || button>=2) return;
+    std::lock_guard<std::mutex> lock(stateMutex);
+    if (pauseReasons || stopping || joystickStatus!=2 || heldJoystickButtons[button]==!!pressed) return;
+    heldJoystickButtons[button]=!!pressed;
+    input.push_back({Input::JoystickButton,button,!!pressed,0,0});
+}
 extern "C" void ndos_x_release_inputs(void) {
     {std::lock_guard<std::mutex> lock(stateMutex); releaseLocked();}
     stateChanged.notify_all();
@@ -104,7 +172,7 @@ extern "C" void ndos_x_request_stop(void) {
     std::deque<std::function<void(bool)>> cancelled;
     {
         std::lock_guard<std::mutex> lock(stateMutex);
-        stopping=true;menuSession=0;
+        releaseLocked();stopping=true;menuSession=0;
         cancelled.swap(controls);
     }
     stateChanged.notify_all();
@@ -126,7 +194,7 @@ extern "C" int ndos_x_host_poll(void) {
                 lock.unlock(); SDL_PauseAudio(audioPaused); lock.lock();
                 continue;
             }
-            if (stopping) return 1;
+            if (stopping) {lock.unlock();neutralizeJoystick();return 1;}
             // Deliver releases through GFX_Events before acknowledging menu open.
             if (releaseBeforePause) break;
             if (!controls.empty()) {
@@ -145,11 +213,22 @@ extern "C" int ndos_x_host_poll(void) {
             Input item=input.front();input.pop_front();pending.push_back(item);
             if(item.kind==Input::Key)deliveredKeys[item.code]=item.down;
             if(item.kind==Input::Button)deliveredButtons[item.code]=item.down;
+            if(item.kind==Input::JoystickButton)deliveredJoystickButtons[item.code]=item.down;
         }
         releaseBeforePause=false;mod=modifiers;
     }
     SDL_SetModState(mod);
     for (const Input &item : pending) {
+        if (item.kind==Input::JoystickMotion || item.kind==Input::JoystickButton) {
+            if (virtualJoystick) {
+                if (item.kind==Input::JoystickMotion) {
+                    auto axis=[](float value) {return static_cast<Sint16>(std::lround(value*(value<0?32768.f:32767.f)));};
+                    SDL_JoystickSetVirtualAxis(virtualJoystick,0,axis(item.x));
+                    SDL_JoystickSetVirtualAxis(virtualJoystick,1,axis(item.y));
+                } else SDL_JoystickSetVirtualButton(virtualJoystick,item.code,item.down);
+            }
+            continue;
+        }
         SDL_Event event{};
         if (item.kind==Input::Key) {
             event.type=item.down?SDL_KEYDOWN:SDL_KEYUP;
@@ -171,6 +250,7 @@ extern "C" int ndos_x_host_poll(void) {
         }
         if (SDL_PushEvent(&event)<0) NSLog(@"nDOS-X input queue failed: %s",SDL_GetError());
     }
+    if (virtualJoystick) SDL_JoystickUpdate();
     return 0;
 }
 

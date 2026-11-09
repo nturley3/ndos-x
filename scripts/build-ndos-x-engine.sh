@@ -12,8 +12,8 @@ ndos_x_jobs=${NDOS_X_JOBS:-8}
 # Xcode's environment does not normally include Homebrew build tools.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 python3 "$ndos_x_root/scripts/prepare-ndos-x.py"
-for ndos_x_tool in cmake autoconf make curl; do command -v "$ndos_x_tool" >/dev/null || { echo "Install required build tool: $ndos_x_tool" >&2; exit 1; }; done
-if ! command -v automake >/dev/null; then
+for ndos_x_tool in cmake make curl; do command -v "$ndos_x_tool" >/dev/null || { echo "Install required build tool: $ndos_x_tool" >&2; exit 1; }; done
+if [[ ! -f "$ndos_x_root/vendor/dosbox-x/configure" ]] && ! command -v automake >/dev/null; then
     ndos_x_tools="$ndos_x_root/output/ndos-x-tools"
     if [[ ! -x "$ndos_x_tools/bin/automake" ]]; then
         mkdir -p "$ndos_x_tools/bootstrap"
@@ -30,7 +30,7 @@ cmake -S "$ndos_x_root/vendor/SDL2" -B "$ndos_x_build/SDL2" \
     -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT="$ndos_x_sdk" -DCMAKE_OSX_ARCHITECTURES="$ndos_x_arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=15.4 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$ndos_x_prefix" \
     -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST=OFF -DSDL2_DISABLE_SDL2MAIN=ON \
-    -DSDL_JOYSTICK=OFF -DSDL_HAPTIC=OFF -DSDL_POWER=OFF -DSDL_SENSOR=OFF -DSDL_LOCALE=OFF \
+    -DSDL_JOYSTICK=ON -DSDL_VIRTUAL_JOYSTICK=ON -DSDL_HIDAPI_JOYSTICK=OFF -DSDL_HAPTIC=OFF -DSDL_POWER=OFF -DSDL_SENSOR=OFF -DSDL_LOCALE=OFF \
     -DSDL_METAL=OFF -DSDL_RENDER_METAL=OFF -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF
 cmake --build "$ndos_x_build/SDL2" -j"$ndos_x_jobs"
 cmake --install "$ndos_x_build/SDL2"
@@ -43,6 +43,7 @@ cmake --build "$ndos_x_build/libpng" -j"$ndos_x_jobs"
 cmake --install "$ndos_x_build/libpng"
 # Autotools generation changes only upstream-ignored build files.
 if [[ ! -f "$ndos_x_root/vendor/dosbox-x/configure" ]]; then
+    command -v autoconf >/dev/null || { echo "Install required build tool: autoconf" >&2; exit 1; }
     (cd "$ndos_x_root/vendor/dosbox-x" && sh autogen.sh)
 fi
 mkdir -p "$ndos_x_build/dosbox-x"

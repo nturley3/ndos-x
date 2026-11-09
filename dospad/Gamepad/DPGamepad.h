@@ -21,9 +21,11 @@ typedef NS_ENUM(NSInteger, DPGamepadButtonIndex) {
     DP_GAMEPAD_BUTTON_TOTAL
 };
 
-@protocol DPGamepadDelegate
+@protocol DPGamepadDelegate <NSObject>
 - (void)gamepad:(DPGamepad*)gamepad buttonIndex:(DPGamepadButtonIndex)buttonIndex pressed:(BOOL)pressed;
 - (void)gamepad:(DPGamepad*)gamepad didJoystickMoveWithX:(float)x y:(float)y;
+@optional
+- (void)gamepadDidChangeMode:(DPGamepad *)gamepad;
 @end
 
 /*
@@ -108,12 +110,13 @@ typedef enum
 
 @property (nonatomic,assign) BOOL editing;
 @property (nonatomic,assign) BOOL gravity;
-@property (nonatomic,strong) id<DPGamepadDelegate> gamepadDelegate;
+@property (nonatomic,weak) id<DPGamepadDelegate> gamepadDelegate;
 @property (nonatomic,readonly) NSMutableArray *buttons;
 @property (nonatomic,strong) DPGamepadDPad *dpad;
 @property (nonatomic,strong) DPGamepadJoystick *stick;
 @property (nonatomic, assign) BOOL stickMode;
 @property (nonatomic, strong) DPGamepadConfiguration *config;
+- (void)releaseInput;
 - (void)applyConfiguration:(DPGamepadConfiguration*)config;
 
 + (NSString*)buttonIdForIndex:(DPGamepadButtonIndex)buttonIndex;
