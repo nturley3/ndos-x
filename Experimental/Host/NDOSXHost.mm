@@ -290,6 +290,7 @@ extern "C" int SDL_main(int, char **) {NSLog(@"nDOS-X owns startup through its h
         _name=[record[@"name"] copy];_title=[record[@"title"] copy];
         _type=[record[@"type"] integerValue];_enabled=[record[@"enabled"] boolValue];
         _checked=[record[@"checked"] boolValue];_isoPicker=[record[@"isoPicker"] boolValue];_unavailableReason=[record[@"reason"] copy];
+        _subtitle=[record[@"subtitle"] copy];
         _children=[children copy];
     }
     return self;
@@ -305,11 +306,12 @@ void copyMenuEntry(const ndos_x_menu_entry *entry, void *context) {
     NSMutableArray *records=(__bridge NSMutableArray *)context;
     // DOSBox-X owns these bytes only during the visitor call.
     NSString *(^copyString)(const char *) = ^NSString *(const char *text) {
+        if (!text) return @"";
         return [[NSString alloc] initWithBytes:text length:strlen(text)
                                       encoding:NSUTF8StringEncoding] ?: @"?";
     };
     [records addObject:@{@"name":copyString(entry->name), @"title":copyString(entry->text),
-        @"reason":copyString(entry->unavailable_reason), @"depth":@(entry->depth),
+        @"reason":copyString(entry->unavailable_reason), @"subtitle":copyString(entry->subtitle), @"depth":@(entry->depth),
         @"type":@(entry->type), @"enabled":@(entry->enabled), @"checked":@(entry->checked), @"isoPicker":@(entry->iso_picker)}];
 }
 NSArray<NDOSXMenuItem *> *menuTree(NSArray *records, NSUInteger &index, NSUInteger depth) {

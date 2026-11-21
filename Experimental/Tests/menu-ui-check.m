@@ -102,6 +102,42 @@
     if (![root isKindOfClass:NDOSXMenuViewController.class]) return;
     XCTAssertTrue([self waitUntil:^BOOL{return [self rowNamed:@"Sound" inMenu:root]!=nil;}]);
     XCTAssertTrue([self waitUntil:^BOOL{return !navigation.isBeingPresented && navigation.transitionCoordinator==nil;}]);
+    NSIndexPath *cpu=[self rowWithEngineName:@"CpuMenu" inMenu:root];
+    XCTAssertNotNil(cpu);if (!cpu) return;
+    [root tableView:root.tableView didSelectRowAtIndexPath:cpu];
+    XCTAssertTrue([self waitUntil:^BOOL{return navigation.topViewController!=root && navigation.transitionCoordinator==nil;}]);
+    NDOSXMenuViewController *cpuMenu=(NDOSXMenuViewController *)navigation.topViewController;
+    for (NSString *name in @[@"mapper_speedlock2",@"mapper_speednorm",@"mapper_speedup",@"mapper_slowdown"]) {
+        NSIndexPath *path=[self rowWithEngineName:name inMenu:cpuMenu];
+        XCTAssertNotNil(path);if (!path) return;
+        XCTAssertFalse([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:path].accessibilityTraits&UIAccessibilityTraitNotEnabled);
+    }
+    NSIndexPath *up=[self rowWithEngineName:@"mapper_speedup" inMenu:cpuMenu];
+    NSIndexPath *down=[self rowWithEngineName:@"mapper_slowdown" inMenu:cpuMenu];
+    NSIndexPath *turbo=[self rowWithEngineName:@"mapper_speedlock2" inMenu:cpuMenu];
+    NSIndexPath *normal=[self rowWithEngineName:@"mapper_speednorm" inMenu:cpuMenu];
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:up].detailTextLabel.text,@"Timing speed: 100%");
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:up];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:down].detailTextLabel.text,@"Timing speed: 105%");
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:turbo];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqual([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:turbo].accessoryType,UITableViewCellAccessoryCheckmark);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:up].detailTextLabel.text,@"After Turbo: 105%");
+    XCTAttachment *cpuImage=[XCTAttachment attachmentWithImage:[self screenshot:navigation.view]];
+    cpuImage.name=@"CPU timing controls in Turbo";
+    cpuImage.lifetime=XCTAttachmentLifetimeKeepAlways;[self addAttachment:cpuImage];
+    XCTAssertFalse(ndos_x_send_keyboard(0,1,SDL_SCANCODE_A));
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:normal];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqual([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:turbo].accessoryType,UITableViewCellAccessoryNone);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:up].detailTextLabel.text,@"Timing speed: 100%");
+    NSIndexPath *edit=[self rowWithEngineName:@"mapper_editcycles" inMenu:cpuMenu];
+    XCTAssertNotNil(edit);if (!edit) return;
+    XCTAssertTrue([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:edit].accessibilityTraits&UIAccessibilityTraitNotEnabled);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:edit].detailTextLabel.text,@"Not supported in nDOS-X yet");
+    [navigation popToRootViewControllerAnimated:NO];
+    XCTAssertTrue([self waitUntil:^BOOL{return navigation.topViewController==root && navigation.transitionCoordinator==nil;}]);
     // Navigate the upstream drive hierarchy to the native, app-local ISO browser.
     NSIndexPath *drives=[self rowWithEngineName:@"DriveMenu" inMenu:root];
     XCTAssertNotNil(drives);

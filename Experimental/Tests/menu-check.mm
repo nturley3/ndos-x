@@ -12,6 +12,8 @@
 #include <cstdio>
 
 extern cpu_cycles_count_t CPU_CycleMax;
+extern bool CPU_CycleAutoAdjust, ticksLocked;
+extern uint32_t emulator_speed;
 extern uint8_t MSCDEX_GetSubUnit(char);
 extern bool CDROM_IsEmpty(CDROM_Interface *);
 extern int IDE_MatchCDROMDrive(char);
@@ -125,6 +127,49 @@ int main() { @autoreleasepool {
     require(!mainMenu.isVisible(),"SDL menu suppressed despite showmenu=true");
     ndos_x_menu_invoke(session,@"cpu386-25",reply);wait();
     require(!failure && CPU_CycleMax==4595,"CPU preset updates actual cycles");
+    for (NSString *name in @[@"mapper_speedlock2",@"mapper_speednorm",@"mapper_speedup",@"mapper_slowdown"])
+        require(find(items,name).enabled,"CPU timing action enabled");
+    for (NSString *name in @[@"mapper_cycleup",@"mapper_cycledown",@"mapper_editcycles"])
+        require(find(items,name) && !find(items,name).enabled,"unsupported cycle action remains disabled");
+    const auto fixedCycles=CPU_CycleMax;
+    ndos_x_menu_invoke(session,@"mapper_speednorm",reply);wait();
+    require(!failure && !ticksLocked && emulator_speed==100,"normal restores 100 percent");
+    require([find(items,@"mapper_speedup").subtitle isEqual:@"Timing speed: 100%"],"normal timing subtitle");
+    NSArray *oldSnapshot=items;
+    ndos_x_menu_invoke(session,@"mapper_speedup",reply);wait();
+    require(!failure && emulator_speed==105 && [find(items,@"mapper_slowdown").subtitle isEqual:@"Timing speed: 105%"],"speed up updates actual timing and subtitle");
+    require([find(oldSnapshot,@"mapper_speedup").subtitle isEqual:@"Timing speed: 100%"],"subtitle snapshot owns immutable copy");
+    ndos_x_menu_invoke(session,@"mapper_speedlock2",reply);wait();
+    require(!failure && ticksLocked && find(items,@"mapper_speedlock2").checked,"turbo enabled and checked");
+    require([find(items,@"mapper_speedup").subtitle isEqual:@"After Turbo: 105%"],"turbo subtitle distinguishes stored timing");
+    ndos_x_menu_invoke(session,@"mapper_speedup",reply);wait();
+    require(!failure && ticksLocked && emulator_speed==110,"speed adjustment preserves turbo");
+    ndos_x_menu_invoke(session,@"mapper_speedlock2",reply);wait();
+    require(!failure && !ticksLocked && !find(items,@"mapper_speedlock2").checked && emulator_speed==110,"turbo toggle restores stored timing");
+    require([find(items,@"mapper_speedup").subtitle isEqual:@"Timing speed: 110%"],"subtitle after turbo toggle");
+    ndos_x_menu_invoke(session,@"mapper_slowdown",reply);wait();
+    require(!failure && emulator_speed==105,"slow down subtracts five points");
+    for (int i=0;i<23;i++) {
+        ndos_x_menu_invoke(session,@"mapper_slowdown",reply);wait();
+        require(!failure,"repeated slow down succeeds");
+    }
+    require(emulator_speed==1,"slow down floors at one percent");
+    ndos_x_menu_invoke(session,@"mapper_speedup",reply);wait();
+    require(!failure && emulator_speed==5,"speed up from one reaches five percent");
+    ndos_x_menu_invoke(session,@"mapper_speedlock2",reply);wait();
+    ndos_x_menu_invoke(session,@"mapper_speednorm",reply);wait();
+    require(!failure && !ticksLocked && emulator_speed==100 && !find(items,@"mapper_speedlock2").checked,"normal clears turbo and resets timing");
+    require(CPU_CycleMax==fixedCycles && !CPU_CycleAutoAdjust,"timing controls preserve fixed CPU cycles");
+    // Exercise upstream's automatic-cycle branch while the worker is quiescent.
+    CPU_CycleAutoAdjust=true;
+    ndos_x_menu_invoke(session,@"mapper_speedlock2",reply);wait();
+    require(!failure && ticksLocked && !CPU_CycleAutoAdjust && CPU_CycleMax==fixedCycles/3,"turbo suspends automatic cycle adjustment");
+    ndos_x_menu_invoke(session,@"mapper_speednorm",reply);wait();
+    require(!failure && !ticksLocked && CPU_CycleAutoAdjust,"normal restores automatic adjustment");
+    CPU_CycleAutoAdjust=false;CPU_CycleMax=fixedCycles;
+    require(!ndos_x_send_keyboard(0,1,SDL_SCANCODE_A),"CPU menu retains guest pause");
+    ndos_x_menu_refresh(session,reply);wait();
+    require(!failure && [find(items,@"mapper_speedup").subtitle isEqual:@"Timing speed: 100%"],"refresh reports current timing");
     ndos_x_menu_invoke(session,@"frameskip_3",reply);wait();
     require(!failure && render.frameskip.max==3 && find(items,@"frameskip_3").checked,"frameskip updates renderer and checkmark");
     require(!find(items,@"frameskip_0").checked,"frameskip selection clears previous checkmark");
@@ -251,12 +296,15 @@ int main() { @autoreleasepool {
     ndos_x_menu_refresh(session,reply);wait();require(!failure && !find(items,@"SoundMenu"),"hidden submenu omitted");
     ndos_x_menu_invoke(session,@"mixer_mute",reply);wait();require(failure!=nil,"command under hidden submenu rejected");
     mainMenu.get_item("SoundMenu").hide(false);
+    ndos_x_menu_invoke(session,@"mapper_speedup",reply);wait();
+    require(!failure && emulator_speed==105,"timing changed before closing menu");
     ndos_x_menu_close(session);
     ndos_x_menu_replace_iso(session,@"drive_D_mountimg",[NSURL fileURLWithPath:second],reply);wait();
     require(failure!=nil,"closed session cannot replace media");
     ndos_x_menu_invoke(session,@"drive_D_unmount",reply);wait();
     require(failure!=nil,"closed session cannot eject media");
     NDOSXMenuSession stoppedSession=ndos_x_menu_open(reply);wait();
+    require(!failure && [find(items,@"mapper_speedup").subtitle isEqual:@"Timing speed: 105%"],"reopened menu retains session timing");
     ndos_x_menu_invoke(stoppedSession,@"drive_D_unmount",reply);
     ndos_x_request_stop();wait();require(failure!=nil,"stop invalidates eject completion");
     require(worker.wait_for(std::chrono::seconds(3))==std::future_status::ready,"engine stops after menu close");

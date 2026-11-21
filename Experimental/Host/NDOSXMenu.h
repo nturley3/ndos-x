@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) BOOL checked;
 @property(nonatomic, readonly) BOOL isoPicker;
 @property(nonatomic, copy, readonly) NSString *unavailableReason;
+@property(nonatomic, copy, readonly) NSString *subtitle;
 @property(nonatomic, copy, readonly) NSArray<NDOSXMenuItem *> *children;
 @end
 

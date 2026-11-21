@@ -1,0 +1,52 @@
+diff --git a/include/ndos_x_menu.h b/include/ndos_x_menu.h
+index ff65ab39b..3905c0644 100644
+--- a/include/ndos_x_menu.h
++++ b/include/ndos_x_menu.h
+@@ -12,6 +12,7 @@ struct ndos_x_menu_entry {
+     int enabled;
+     int checked;
+     int iso_picker; /* native replacement action; never dispatch a desktop picker */
++    const char *subtitle; /* optional informational text, borrowed for visitor call */
+ };
+ typedef void (*ndos_x_menu_visitor)(const struct ndos_x_menu_entry *, void *);
+ /* 0 success, 1 not ready, 2 unavailable command. */
+diff --git a/src/gui/menu.cpp b/src/gui/menu.cpp
+index 0667ee3c4..38e187683 100644
+--- a/src/gui/menu.cpp
++++ b/src/gui/menu.cpp
+@@ -3673,6 +3673,9 @@ extern bool ndos_x_cd_eject_target(const std::string &name);
+ extern bool ndos_x_eject_cd(const std::string &name);
+ extern bool ndos_x_replace_iso(const std::string &name, const char *path);
+ 
++extern uint32_t emulator_speed;
++extern bool ticksLocked;
++
+ namespace {
+ // Explicitly reviewed direct actions. Do not enable new upstream commands by default.
+ bool ndos_menu_supported(const std::string &name) {
+@@ -3685,7 +3688,8 @@ bool ndos_menu_supported(const std::string &name) {
+         "frameskip_0", "frameskip_1", "frameskip_2", "frameskip_3",
+         "frameskip_4", "frameskip_5", "frameskip_6", "frameskip_7",
+         "frameskip_8", "frameskip_9", "frameskip_10",
+-        "mixer_mute", "mixer_swapstereo"
++        "mixer_mute", "mixer_swapstereo",
++        "mapper_speedlock2", "mapper_speednorm", "mapper_speedup", "mapper_slowdown"
+     };
+     for (const char *candidate : supported)
+         if (name == candidate) return true;
+@@ -3709,10 +3713,14 @@ bool ndos_menu_walk(const DOSBoxMenu::displaylist &list, unsigned int depth,
+         const char *reason = !enabled ? "Unavailable in the current engine state" :
+             action && !supported ? (item.get_name().size() >= 9 && item.get_name().compare(item.get_name().size() - 9, 9, "_mountimg") == 0 ? "Requires an existing CD-ROM drive. Configure one before startup: imgmount d empty -t iso" : "Not supported in nDOS-X yet") : "";
+         if (visitor) {
++            std::string subtitle;
++            if (item.get_name() == "mapper_speedup" || item.get_name() == "mapper_slowdown")
++                subtitle = std::string(ticksLocked ? "After Turbo: " : "Timing speed: ") +
++                    std::to_string(emulator_speed) + "%";
+             const ndos_x_menu_entry entry = {
+                 item.get_name().c_str(), eject ? "Eject disc" : item.get_text().c_str(), reason,
+                 depth, static_cast<int>(item.get_type()),
+-                enabled && (!action || supported), item.is_checked(), picker
++                enabled && (!action || supported), item.is_checked(), picker, subtitle.c_str()
+             };
+             visitor(&entry, context);
+         }

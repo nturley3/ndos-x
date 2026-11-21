@@ -196,7 +196,7 @@
     cell.textLabel.adjustsFontForContentSizeCategory=YES;
     cell.detailTextLabel.adjustsFontForContentSizeCategory=YES;
     cell.textLabel.textColor=enabled ? UIColor.labelColor : UIColor.secondaryLabelColor;
-    cell.detailTextLabel.text=item.unavailableReason;
+    cell.detailTextLabel.text=!enabled && item.unavailableReason.length ? item.unavailableReason : item.subtitle;
     cell.accessoryType=submenu ? UITableViewCellAccessoryDisclosureIndicator :
         item.checked ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     cell.selectionStyle=enabled && !self.root.busy ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
