@@ -81,7 +81,7 @@
     [self writeISOAtPath:[fixtures stringByAppendingPathComponent:@"Good.iso"]];
     XCTAssertTrue([@"broken" writeToFile:[fixtures stringByAppendingPathComponent:@"Bad.ISO"] atomically:YES encoding:NSUTF8StringEncoding error:nil]);
     XCTAssertTrue([@"ignored" writeToFile:[fixtures stringByAppendingPathComponent:@"Ignored.cue"] atomically:YES encoding:NSUTF8StringEncoding error:nil]);
-    XCTAssertTrue([@"[sdl]\noutput=surface\nwaitonerror=false\nautolock=false\n[cpu]\ncore=normal\ncycles=fixed 20000\n[midi]\nmididevice=none\n[autoexec]\nmount c \"ISOBrowserTest\"\nc:\nimgmount d empty -t iso\necho ready>READY.TXT\n"
+    XCTAssertTrue([@"[sdl]\noutput=surface\nwaitonerror=false\nautolock=false\n[cpu]\ncore=normal\ncycles=fixed 20000\ncycleup=500\ncycledown=250\n[midi]\nmididevice=none\n[autoexec]\nmount c \"ISOBrowserTest\"\nc:\nimgmount d empty -t iso\necho ready>READY.TXT\n"
         writeToFile:profile atomically:YES encoding:NSUTF8StringEncoding error:nil]);
     [(NDOSXProfilePicker *)picker.topViewController refresh];
     [picker.topViewController setValue:@"iso-ui.conf" forKey:@"selectedFilename"];
@@ -102,6 +102,61 @@
     if (![root isKindOfClass:NDOSXMenuViewController.class]) return;
     XCTAssertTrue([self waitUntil:^BOOL{return [self rowNamed:@"Sound" inMenu:root]!=nil;}]);
     XCTAssertTrue([self waitUntil:^BOOL{return !navigation.isBeingPresented && navigation.transitionCoordinator==nil;}]);
+    NSIndexPath *cpu=[self rowWithEngineName:@"CpuMenu" inMenu:root];
+    XCTAssertNotNil(cpu);if (!cpu) return;
+    [root tableView:root.tableView didSelectRowAtIndexPath:cpu];
+    XCTAssertTrue([self waitUntil:^BOOL{return navigation.topViewController!=root && navigation.transitionCoordinator==nil;}]);
+    NDOSXMenuViewController *cpuMenu=(NDOSXMenuViewController *)navigation.topViewController;
+    for (NSString *name in @[@"mapper_speedlock2",@"mapper_speednorm",@"mapper_speedup",@"mapper_slowdown",@"mapper_cycleup",@"mapper_cycledown"]) {
+        NSIndexPath *path=[self rowWithEngineName:name inMenu:cpuMenu];
+        XCTAssertNotNil(path);if (!path) return;
+        XCTAssertFalse([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:path].accessibilityTraits&UIAccessibilityTraitNotEnabled);
+    }
+    NSIndexPath *up=[self rowWithEngineName:@"mapper_speedup" inMenu:cpuMenu];
+    NSIndexPath *down=[self rowWithEngineName:@"mapper_slowdown" inMenu:cpuMenu];
+    NSIndexPath *turbo=[self rowWithEngineName:@"mapper_speedlock2" inMenu:cpuMenu];
+    NSIndexPath *normal=[self rowWithEngineName:@"mapper_speednorm" inMenu:cpuMenu];
+    NSIndexPath *cycleUp=[self rowWithEngineName:@"mapper_cycleup" inMenu:cpuMenu];
+    NSIndexPath *cycleDown=[self rowWithEngineName:@"mapper_cycledown" inMenu:cpuMenu];
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:cycleUp].detailTextLabel.text,@"CPU cycles: 20000");
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:cycleUp];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:cycleDown].detailTextLabel.text,@"CPU cycles: 20500");
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:cycleDown];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:cycleUp].detailTextLabel.text,@"CPU cycles: 20250");
+    XCTAssertFalse(ndos_x_send_keyboard(0,1,SDL_SCANCODE_A));
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:up].detailTextLabel.text,@"Timing speed: 100%");
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:up];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:down].detailTextLabel.text,@"Timing speed: 105%");
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:turbo];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqual([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:turbo].accessoryType,UITableViewCellAccessoryCheckmark);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:up].detailTextLabel.text,@"After Turbo: 105%");
+    XCTAssertFalse([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:cycleUp].accessibilityTraits&UIAccessibilityTraitNotEnabled);
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:cycleUp];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:cycleDown].detailTextLabel.text,@"CPU cycles: 20750");
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:cycleDown];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:cycleUp].detailTextLabel.text,@"CPU cycles: 20500");
+    XCTAssertEqual([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:turbo].accessoryType,UITableViewCellAccessoryCheckmark);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:up].detailTextLabel.text,@"After Turbo: 105%");
+    XCTAttachment *cpuImage=[XCTAttachment attachmentWithImage:[self screenshot:navigation.view]];
+    cpuImage.name=@"CPU timing controls in Turbo";
+    cpuImage.lifetime=XCTAttachmentLifetimeKeepAlways;[self addAttachment:cpuImage];
+    XCTAssertFalse(ndos_x_send_keyboard(0,1,SDL_SCANCODE_A));
+    [cpuMenu tableView:cpuMenu.tableView didSelectRowAtIndexPath:normal];
+    XCTAssertTrue([self waitUntil:^BOOL{return ![[root valueForKey:@"busy"] boolValue];}]);
+    XCTAssertEqual([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:turbo].accessoryType,UITableViewCellAccessoryNone);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:up].detailTextLabel.text,@"Timing speed: 100%");
+    NSIndexPath *edit=[self rowWithEngineName:@"mapper_editcycles" inMenu:cpuMenu];
+    XCTAssertNotNil(edit);if (!edit) return;
+    XCTAssertTrue([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:edit].accessibilityTraits&UIAccessibilityTraitNotEnabled);
+    XCTAssertEqualObjects([cpuMenu tableView:cpuMenu.tableView cellForRowAtIndexPath:edit].detailTextLabel.text,@"Not supported in nDOS-X yet");
+    [navigation popToRootViewControllerAnimated:NO];
+    XCTAssertTrue([self waitUntil:^BOOL{return navigation.topViewController==root && navigation.transitionCoordinator==nil;}]);
     // Navigate the upstream drive hierarchy to the native, app-local ISO browser.
     NSIndexPath *drives=[self rowWithEngineName:@"DriveMenu" inMenu:root];
     XCTAssertNotNil(drives);

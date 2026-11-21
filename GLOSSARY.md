@@ -37,3 +37,12 @@ _Avoid_: Keyboard gamepad when referring to joystick input
 **Keyboard gamepad**:
 Touch controls arranged as a gamepad that send configured keys or text to the guest.
 _Avoid_: Virtual joystick when referring to keyboard input
+
+**Timing speed**:
+The rate at which guest time advances relative to real time, expressed as a percentage. It is separate from the guest CPU’s cycle budget.
+
+**Normal speed**:
+Timing speed of 100%, with Turbo turned off.
+
+**Turbo**:
+Fast-forward mode that lets guest time advance without normal timing limits. The normal timing speed applies again when Turbo ends.

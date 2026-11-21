@@ -1,0 +1,25 @@
+diff --git a/src/gui/menu.cpp b/src/gui/menu.cpp
+index 38e187683..b8c2e1b27 100644
+--- a/src/gui/menu.cpp
++++ b/src/gui/menu.cpp
+@@ -3689,7 +3689,8 @@ bool ndos_menu_supported(const std::string &name) {
+         "frameskip_4", "frameskip_5", "frameskip_6", "frameskip_7",
+         "frameskip_8", "frameskip_9", "frameskip_10",
+         "mixer_mute", "mixer_swapstereo",
+-        "mapper_speedlock2", "mapper_speednorm", "mapper_speedup", "mapper_slowdown"
++        "mapper_speedlock2", "mapper_speednorm", "mapper_speedup", "mapper_slowdown",
++        "mapper_cycleup", "mapper_cycledown"
+     };
+     for (const char *candidate : supported)
+         if (name == candidate) return true;
+@@ -3717,6 +3718,10 @@ bool ndos_menu_walk(const DOSBoxMenu::displaylist &list, unsigned int depth,
+             if (item.get_name() == "mapper_speedup" || item.get_name() == "mapper_slowdown")
+                 subtitle = std::string(ticksLocked ? "After Turbo: " : "Timing speed: ") +
+                     std::to_string(emulator_speed) + "%";
++            else if (item.get_name() == "mapper_cycleup" || item.get_name() == "mapper_cycledown")
++                subtitle = CPU_CycleAutoAdjust ?
++                    "Automatic cycles target: " + std::to_string(CPU_CyclePercUsed) + "%" :
++                    "CPU cycles: " + std::to_string(CPU_CycleMax);
+             const ndos_x_menu_entry entry = {
+                 item.get_name().c_str(), eject ? "Eject disc" : item.get_text().c_str(), reason,
+                 depth, static_cast<int>(item.get_type()),
