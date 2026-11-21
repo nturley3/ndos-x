@@ -39,3 +39,6 @@ tmp
 !/scripts/test-ndos-x-profiles.sh
 
 !/scripts/test-ndos-x-menu.sh
+
+!/scripts/test-ndos-x-guest-joystick.sh
+!/scripts/render-ndos-x-controls.sh

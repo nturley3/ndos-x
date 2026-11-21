@@ -62,6 +62,23 @@
     if ([filenames containsObject:@"NDOS-X.CONF"]) return @"NDOS-X.CONF";
     return filenames.firstObject;
 }
+- (NSString *)gamepadPathForConfiguration:(NSString *)path sharedPath:(NSString *)shared
+                          bundledPath:(NSString *)bundled error:(NSError **)error
+{
+    NSString *destination=[[path stringByDeletingPathExtension] stringByAppendingPathExtension:@"gamepad.json"];
+    NSFileManager *fm=NSFileManager.defaultManager;
+    if ([fm fileExistsAtPath:destination]) return destination;
+    for (NSString *source in @[shared ?: @"", bundled ?: @""]) {
+        NSData *data=[NSData dataWithContentsOfFile:source];
+        id bindings=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+        if (![bindings isKindOfClass:NSDictionary.class]) continue;
+        if (![data writeToFile:destination options:NSDataWritingAtomic error:error]) return nil;
+        return destination;
+    }
+    if (error) *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError
+        userInfo:@{NSLocalizedDescriptionKey:@"No readable gamepad mappings were found."}];
+    return nil;
+}
 - (NSArray<NSString *> *)argumentsForPath:(NSString *)path
 {
     NSMutableArray *arguments = [NSMutableArray arrayWithArray:@[@"ndos-x", @"-conf", path]];

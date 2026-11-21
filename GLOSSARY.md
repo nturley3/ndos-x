@@ -26,3 +26,14 @@ _Avoid_: CD-ROM drive, disk image when referring specifically to a CD
 **Eject disc**:
 Remove the disc image from a CD-ROM drive while leaving the drive available with an empty tray. Another disc image can be inserted into the same drive later.
 _Avoid_: Unmount drive, remove drive
+
+**Touch controls**:
+The onscreen controls used to operate DOS software with fingers, including the virtual joystick and keyboard gamepad.
+
+**Virtual joystick**:
+Touch controls that operate a joystick recognized by the DOS or Windows guest.
+_Avoid_: Keyboard gamepad when referring to joystick input
+
+**Keyboard gamepad**:
+Touch controls arranged as a gamepad that send configured keys or text to the guest.
+_Avoid_: Virtual joystick when referring to keyboard input

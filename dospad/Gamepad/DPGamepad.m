@@ -5,6 +5,9 @@
 #import "ColorTheme.h"
 #import "DPSettings.h"
 #import "SoundEffect.h"
+#ifdef NDOS_X_HOST
+#import "NDOSXHost.h"
+#endif
 
 #define CENTER_OF_RECT(r) CGPointMake(r.size.width/2,r.size.height/2)
 #define DISTANCE_BETWEEN(a,b) sqrt((a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y))
@@ -156,6 +159,15 @@ if ((x) > 1.0) { \
 	[self updateCurrentDirectionFromPoint:pt];
 }
 
+- (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event
+{
+#ifdef NDOS_X_HOST
+    [self.gamepad releaseInput];
+#else
+    [self touchesEnded:touches withEvent:event];
+#endif
+}
+
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event
 {
 	[self setCurrentDirection:DPGamepadDPadDirectionNone];
@@ -235,6 +247,15 @@ if ((x) > 1.0) { \
 	[self updateJoystickAxis:CGPointMake(pt.x-ptCenter.x, pt.y-ptCenter.y)];
 }
 
+- (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event
+{
+#ifdef NDOS_X_HOST
+    [self.gamepad releaseInput];
+#else
+    [self touchesEnded:touches withEvent:event];
+#endif
+}
+
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event
 {
 	[super touchesEnded:touches withEvent:event];
@@ -302,6 +323,11 @@ if ((x) > 1.0) { \
 	[[self superview] touchesMoved:touches withEvent:event];
 }
 
+- (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event
+{
+    [[self superview] touchesCancelled:touches withEvent:event];
+}
+
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event
 {
 	[[self superview] touchesEnded:touches withEvent:event];
@@ -335,10 +361,18 @@ if ((x) > 1.0) { \
 	NSString *text = _title;
 	if (_gamepad.stickMode) {
 		if (_buttonIndex == DP_GAMEPAD_BUTTON_A) {
-			text = @"0";
+#ifdef NDOS_X_HOST
+            text = @"1";
+#else
+            text = @"0";
+#endif
 		} else if (_buttonIndex == DP_GAMEPAD_BUTTON_X) {
-			text = @"1";
-		}
+#ifdef NDOS_X_HOST
+            text = @"2";
+#else
+            text = @"1";
+#endif
+        }
 	}
     
 	if (text) {
@@ -369,6 +403,20 @@ if ((x) > 1.0) { \
 
 @implementation DPGamepad
 
+- (instancetype)initWithFrame:(CGRect)frame scene:(DPThemeScene *)scene
+{
+    if ((self=[super initWithFrame:frame scene:scene])) {
+        self.multipleTouchEnabled=YES;
+        for (UIView *view in self.subviews) {
+            if (![view isKindOfClass:DPButton.class]) continue;
+            DPButton *button=(DPButton *)view;
+            if ([button.name isEqualToString:@"joystick-toggle"]) button.accessibilityLabel=@"Switch control mode";
+            if ([button.name isEqualToString:@"edit-toggle"]) button.accessibilityLabel=@"Edit gamepad bindings";
+        }
+    }
+    return self;
+}
+
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
 {
 	if (_thumbView && _thumbView.showThumbOnly) {
@@ -376,7 +424,8 @@ if ((x) > 1.0) { \
 	}
 	NSArray *subviews = self.subviews;
 	for (int i = 0; i < [subviews count]; i++) {
-		UIView *view = [subviews objectAtIndex:i];
+        UIView *view = [subviews objectAtIndex:i];
+        if (view.hidden || view.alpha<=0.01 || !view.userInteractionEnabled) continue;
 		if ([view pointInside:[self convertPoint:point toView:view] 
 			withEvent:event]) 
 		{
@@ -402,8 +451,8 @@ if ((x) > 1.0) { \
 		   will be activated. */
 		for (i = n-1; i >= 0; i--) {
 			DPGamepadButton *k = [_buttons objectAtIndex:i];
-			if (k.alpha == 0) continue;
-			if (!hit && [k pointInside:
+			if (k.hidden || k.alpha == 0) continue;
+			if (!hit && (!k.prevtouch || k.prevtouch==touch) && [k pointInside:
 				[self convertPoint:pt toView:k]
 				withEvent:event]) 
 			{
@@ -418,6 +467,11 @@ if ((x) > 1.0) { \
 
 
 	}
+}
+
+- (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event
+{
+    [self releaseInput];
 }
 
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event
@@ -527,7 +581,8 @@ if ((x) > 1.0) { \
 
 - (void)setEditing:(BOOL)editing
 {
-	_editing = editing;
+    [self releaseInput];
+    _editing = editing;
 	if (_editing) {
 		for (DPGamepadButton *btn in _buttons) {
 			btn.hidden = NO;
@@ -543,7 +598,8 @@ if ((x) > 1.0) { \
 
 - (void)applyConfiguration:(DPGamepadConfiguration*)config
 {
-	_config = config;
+    [self releaseInput];
+    _config = config;
 	for (DPGamepadButton *btn in _buttons)
 	{
 		if (!_editing)
@@ -559,15 +615,74 @@ if ((x) > 1.0) { \
 
 - (void)setStickMode:(BOOL)stickMode
 {
-	if (stickMode) {
+#ifdef NDOS_X_HOST
+    if (stickMode && ndos_x_joystick_status()!=2) {
+        UIViewController *controller=self.window.rootViewController;
+        while (controller.presentedViewController) controller=controller.presentedViewController;
+        UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Joystick unavailable"
+            message:@"Enable joysticktype=2axis in this machine’s [joystick] configuration and relaunch nDOS-X."
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [controller presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+#endif
+    [self releaseInput];
+    if (stickMode) {
 		_stick.hidden = NO;
 		_dpad.hidden = YES;
 	} else {
 		_stick.hidden = YES;
 		_dpad.hidden = NO;
 	}
-	for (DPGamepadButton *btn in _buttons)
-		[btn setNeedsDisplay];
+    for (DPGamepadButton *btn in _buttons) [btn setNeedsDisplay];
+    for (UIView *view in self.subviews) {
+        if (![view isKindOfClass:DPButton.class]) continue;
+        DPButton *button=(DPButton *)view;
+        if (![button.name isEqualToString:@"joystick-toggle"]) continue;
+        [button setImage:[self.scene getImage:self.stickMode?@"assets/joystick-toggle-on.png":@"assets/joystick-toggle-off.png"] forState:UIControlStateNormal];
+        button.accessibilityValue=self.stickMode?@"Joystick":@"Keyboard Gamepad";
+    }
+    if ([self.gamepadDelegate respondsToSelector:@selector(gamepadDidChangeMode:)])
+        [self.gamepadDelegate gamepadDidChangeMode:self];
+}
+
+- (void)releaseInput
+{
+    // A reset is cancellation, not a button activation (text bindings fire on up).
+    id<DPGamepadDelegate> delegate=self.gamepadDelegate;
+#ifndef NDOS_X_HOST
+    self.dpad.currentDirection=DPGamepadDPadDirectionNone;
+    for (DPGamepadButton *button in _buttons) {
+        BOOL joystickButton=self.stickMode && (button.buttonIndex==DP_GAMEPAD_BUTTON_A || button.buttonIndex==DP_GAMEPAD_BUTTON_X);
+        if (button.pressed && (joystickButton || ![_config bindingForButton:button.buttonIndex].text))
+            [delegate gamepad:self buttonIndex:button.buttonIndex pressed:NO];
+    }
+#endif
+    self.gamepadDelegate=nil;
+    self.dpad.currentDirection=DPGamepadDPadDirectionNone;
+    self.stick.axisPosition=CGPointZero;
+    [self.stick setNeedsDisplay];
+    for (DPGamepadButton *button in _buttons) {button.pressed=NO;button.prevtouch=nil;}
+    self.gamepadDelegate=delegate;
+#ifdef NDOS_X_HOST
+    // The host owns delivered keys/buttons, including input already queued.
+    ndos_x_release_inputs();
+#else
+    [delegate gamepad:self didJoystickMoveWithX:0 y:0];
+#endif
+}
+
+- (void)setHidden:(BOOL)hidden
+{
+    if (hidden && !self.hidden) [self releaseInput];
+    [super setHidden:hidden];
+}
+
+- (void)willMoveToSuperview:(UIView *)newSuperview
+{
+    if (!newSuperview) [self releaseInput];
+    [super willMoveToSuperview:newSuperview];
 }
 
 // MARK: DPThumbViewDelegate

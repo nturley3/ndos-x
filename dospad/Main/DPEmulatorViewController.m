@@ -32,6 +32,7 @@
 #import "DPSettingsViewController.h"
 #ifdef NDOS_X_HOST
 #import "NDOSXMenu.h"
+#import "NDOSXHost.h"
 #endif
 
 typedef NS_ENUM(NSInteger, DPFloatingInputType) {
@@ -83,6 +84,9 @@ static struct {
 	// Only used in portrait mode
 	UIView *_rootContainer;
 	DPTheme *_currentTheme;
+#ifdef NDOS_X_HOST
+    DPTheme *_controlsTheme;
+#endif
 	DPThemeScene *_currentScene;
 	
     UILabel *labCycles;
@@ -141,8 +145,8 @@ static struct {
 {
 	for (UIView *v in _rootContainer.subviews)
 	{
-		if (v.tag == tag)
-			return v;
+        if (v.tag == tag && !v.hidden)
+            return v;
 	}
 	return nil;
 }
@@ -161,7 +165,13 @@ static struct {
 {
     UIView *v = [self findInputView:type];
     if (v) {
-    	[v removeFromSuperview];
+#ifdef NDOS_X_HOST
+        if (_currentScene.isPortrait && [v isKindOfClass:DPGamepad.class]) {
+            v.hidden=YES;
+            [self findKeyboard].hidden=NO;
+        } else
+#endif
+        [v removeFromSuperview];
 	    [self refreshFullscreenPanel];
         
         // Shrink screen when keyboard is enabled
@@ -178,6 +188,18 @@ static struct {
 
 - (void)createFloatingInput:(DPFloatingInputType)type
 {
+#ifdef NDOS_X_HOST
+    if (type==TAG_INPUT_JOYSTICK && ![self checkJoystickAvailable]) return;
+    if (_currentScene.isPortrait && (type==TAG_INPUT_GAMEPAD || type==TAG_INPUT_JOYSTICK)) {
+        DPGamepad *gamepad=[self findGamepad];
+        [gamepad releaseInput];
+        gamepad.tag=type;
+        gamepad.stickMode=type==TAG_INPUT_JOYSTICK;
+        gamepad.hidden=NO;
+        [self findKeyboard].hidden=YES;
+        return;
+    }
+#endif
     // Remove currently active controls as new control is toggled
     // Not triggered when control is manually removed from screen via panel button
 	for (UIView* v in _rootContainer.subviews)
@@ -229,7 +251,7 @@ static struct {
 - (BOOL)allowsInput:(DPFloatingInputType)type
 {
 #ifdef NDOS_X_HOST
-    if (type==TAG_INPUT_GAMEPAD || type==TAG_INPUT_JOYSTICK) return NO;
+    if (type==TAG_INPUT_GAMEPAD || type==TAG_INPUT_JOYSTICK) return YES;
 #endif
 	switch (type) {
 		case TAG_INPUT_JOYSTICK:
@@ -371,6 +393,10 @@ static struct {
     
     NSURL *url = [[NSBundle mainBundle].resourceURL URLByAppendingPathComponent:@"default.idostheme"];
     _currentTheme = [[DPTheme alloc] initWithURL:url];
+#ifdef NDOS_X_HOST
+    _controlsTheme=[[DPTheme alloc] initWithURL:[NSBundle.mainBundle.resourceURL
+        URLByAppendingPathComponent:@"ndos-x-controls.idostheme"]];
+#endif
     self.view.backgroundColor = _currentTheme.backgroundColor;
 
 #ifdef APPSTORE
@@ -518,10 +544,19 @@ static struct {
         {
             NSString *sceneName = x[@"scene"];
             if (!sceneName) sceneName = @"gamepad";
-            DPThemeScene *scn = [_currentTheme findSceneByName:sceneName];
+            DPThemeScene *scn = [
+#ifdef NDOS_X_HOST
+                _controlsTheme
+#else
+                _currentTheme
+#endif
+                findSceneByName:sceneName];
             DPGamepad *gamepad = [[DPGamepad alloc] initWithFrame:frame scene:scn];
             gamepad.gamepadDelegate = self;
             gamepad.hidden = hidden;
+#ifdef NDOS_X_HOST
+            gamepad.tag=TAG_INPUT_GAMEPAD;
+#endif
             if (_gamepadConfig) {
                 [gamepad applyConfiguration:_gamepadConfig];
             }
@@ -578,10 +613,8 @@ static struct {
     [super viewWillLayoutSubviews];
     DPThemeScene *scene = [self findSceneForSize:viewRect.size];
     NSAssert(scene != nil, @"No scene for %@", @(viewRect));
-    _currentScene = scene;
-        
     if (_currentScene == scene && _rootContainer &&
-        CGRectEqualToRect(_rootContainer.bounds, viewRect))
+        CGRectEqualToRect(_rootContainer.frame, viewRect))
     {
         // No change
         return;
@@ -590,8 +623,13 @@ static struct {
         NSLog(@"Recreate scene %@ %@, origin=%@", scene.name, @(viewRect), @(_rootContainer.bounds));
         [fullscreenPanel removeFromSuperview];
         fullscreenPanel = nil;
+#ifdef NDOS_X_HOST
+        for (UIView *view in _rootContainer.subviews)
+            if ([view isKindOfClass:DPGamepad.class]) [(DPGamepad *)view releaseInput];
+#endif
         [_rootContainer removeFromSuperview];
     }
+    _currentScene=scene;
     _rootContainer = [self createSceneView:_currentScene frame:viewRect];
     [self.view addSubview:_rootContainer];
     [self updateScreen];
@@ -600,8 +638,7 @@ static struct {
 - (void)registerButton:(UIButton*)btn name:(NSString*)name
 {
 #ifdef NDOS_X_HOST
-    // Portrait themes have a controller button; use this unavailable host control
-    // for the engine menu without changing the shared theme assets.
+    // Keep Engine Menu in its established location and provide separate touch controls.
     if ([name isEqualToString:@"gamepad-toggle"]) {
         [btn setImage:[UIImage systemImageNamed:@"list.bullet"] forState:UIControlStateNormal];
         [btn setImage:nil forState:UIControlStateHighlighted];
@@ -609,7 +646,14 @@ static struct {
         [btn addTarget:self action:@selector(showEngineMenu:) forControlEvents:UIControlEventTouchUpInside];
         return;
     }
-    if ([@[@"floppy",@"cdrom"] containsObject:name]) {btn.enabled=NO;return;}
+    if ([name isEqualToString:@"floppy"]) {
+        [btn setImage:[UIImage systemImageNamed:@"gamecontroller"] forState:UIControlStateNormal];
+        [btn setImage:nil forState:UIControlStateHighlighted];
+        btn.tintColor=UIColor.lightGrayColor;btn.accessibilityLabel=@"Touch controls";
+        [btn addTarget:self action:@selector(showTouchControls:) forControlEvents:UIControlEventTouchUpInside];
+        return;
+    }
+    if ([name isEqualToString:@"cdrom"]) {btn.enabled=NO;return;}
 #endif
     if ([name isEqualToString:@"power"])
     {
@@ -760,7 +804,13 @@ static struct {
 
 - (DPGamepad*)createGamepadHelper
 {
-	DPThemeScene *scn = [_currentTheme findSceneByName:(NSString*)[_currentScene getAttribute:@"gamepad"]];
+    DPThemeScene *scn = [
+#ifdef NDOS_X_HOST
+        _controlsTheme
+#else
+        _currentTheme
+#endif
+        findSceneByName:(NSString*)[_currentScene getAttribute:@"gamepad"]];
 	CGFloat height = 240;
 	if ([UIDevice.currentDevice.model isEqual:@"iPad"]) {
 		height = _rootContainer.bounds.size.width*0.3;
@@ -783,7 +833,8 @@ static struct {
     
     if (gamepad.editing)
     {
-        if (!pressed) {
+        if (!pressed && !self.presentedViewController) {
+            [gamepad releaseInput];
             DPGamepadButtonEditor *ed = [[DPGamepadButtonEditor alloc] init];
             ed.buttonIndex = buttonIndex;
             ed.gamepadConfig = _gamepadConfig;
@@ -825,7 +876,7 @@ static struct {
 - (void)gamepad:(DPGamepad*)gamepad didJoystickMoveWithX:(float)x y:(float)y
 {
     //NSLog(@"gamepad joy %f %f", x, y);
-    [[DOSPadEmulator sharedInstance] updateJoystick:0 x:x y:y];
+    if (!gamepad.editing) [[DOSPadEmulator sharedInstance] updateJoystick:0 x:x y:y];
 }
 
 - (void)toggleGamepad:(UIButton*)btn
@@ -850,6 +901,53 @@ static struct {
     return nil;
 }
 
+
+#ifdef NDOS_X_HOST
+- (void)gamepadDidChangeMode:(DPGamepad *)gamepad
+{
+    gamepad.tag=gamepad.stickMode?TAG_INPUT_JOYSTICK:TAG_INPUT_GAMEPAD;
+    [self refreshFullscreenPanel];
+}
+
+- (void)releaseTouchControls
+{
+    for (UIView *view in _rootContainer.subviews)
+        if ([view isKindOfClass:DPGamepad.class]) [(DPGamepad *)view releaseInput];
+}
+
+- (BOOL)checkJoystickAvailable
+{
+    int status=ndos_x_joystick_status();
+    if (status==2) return YES;
+    NSString *message=status<0?@"The virtual joystick could not be initialized. Keyboard Gamepad remains available.":
+        status==0?@"The emulator is still starting. Try again after the guest appears.":
+        @"Set joysticktype=2axis in the [joystick] section of this machine’s .conf file, then fully close and relaunch nDOS-X. Keyboard Gamepad works without joystick hardware.";
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Joystick unavailable" message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+    return NO;
+}
+
+- (void)showTouchControls:(UIButton *)sender
+{
+    if (self.presentedViewController) return;
+    [self releaseTouchControls];
+    UIAlertController *picker=[UIAlertController alertControllerWithTitle:@"Touch controls" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [picker addAction:[UIAlertAction actionWithTitle:@"Keyboard Gamepad" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [self createFloatingInput:TAG_INPUT_GAMEPAD];
+    }]];
+    [picker addAction:[UIAlertAction actionWithTitle:@"Joystick" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [self createFloatingInput:TAG_INPUT_JOYSTICK];
+    }]];
+    [picker addAction:[UIAlertAction actionWithTitle:@"Hide controls" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [self removeFloatingInput:TAG_INPUT_GAMEPAD];[self removeFloatingInput:TAG_INPUT_JOYSTICK];
+    }]];
+    [picker addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    picker.popoverPresentationController.sourceView=sender;
+    picker.popoverPresentationController.sourceRect=sender.bounds;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+#endif
 
 //MARK: - Joystick Controls/Delegates
 - (void)createJoystick
@@ -972,6 +1070,9 @@ static struct {
 {
     [super viewWillDisappear:animated];
     _emulatorVisible = NO;
+#ifdef NDOS_X_HOST
+    [self releaseTouchControls];
+#endif
     if ([UIDevice.currentDevice.model isEqual:@"iPad"] && !_currentScene.isPortrait)
     {
         self.screenView.alpha = 0; // Try to fix reboot problem on iPad 3.2.x
@@ -981,6 +1082,9 @@ static struct {
 
 -(void)willResignActive
 {
+#ifdef NDOS_X_HOST
+    [self releaseTouchControls];
+#endif
     [[DPKeyboardManager defaultManager] willResignActive];
 }
 
@@ -1121,6 +1225,7 @@ static struct {
 - (void)showEngineMenu:(id)sender
 {
     if (self.presentedViewController || _settingsPresented) return;
+    [self releaseTouchControls];
     _settingsPresented=YES;
     [self.view endEditing:YES];
     [self.screenView cancelEmulatorTouches];
@@ -1146,6 +1251,9 @@ static struct {
 - (void)showOption:(id)sender
 {
     if (self.presentedViewController || _settingsPresented) return;
+#ifdef NDOS_X_HOST
+    [self releaseTouchControls];
+#endif
     _settingsPresented = YES;
     [self.view endEditing:YES];
     [self.screenView cancelEmulatorTouches];
@@ -1313,8 +1421,8 @@ static struct {
 
 - (void)emulatorWillStart:(DOSPadEmulator *)emulator
 {
-	_gamepadConfig = [[DPGamepadConfiguration alloc] initWithURL:[NSURL
-		fileURLWithPath:[DOSPadEmulator sharedInstance].gamepadConfigFile]];
+    _gamepadConfig = [[DPGamepadConfiguration alloc] initWithURL:[NSURL
+        fileURLWithPath:emulator.gamepadConfigFile]];
 	[[self findGamepad] applyConfiguration:_gamepadConfig];
 	_mfiConfig = [[MfiGamepadConfiguration alloc] initWithConfig:emulator.mfiConfigFile];
 	_mfiManager = [MfiGamepadManager defaultManager];

@@ -8,6 +8,11 @@ extern "C" {
 int ndos_x_send_keyboard(int index, uint8_t state, SDL_Scancode scancode);
 void ndos_x_send_mouse_motion(float x, float y);
 void ndos_x_send_mouse_button(int button, int pressed);
+// Coordinates are normalized to [-1, 1], with positive Y down. One joystick.
+void ndos_x_send_joystick_motion(float x, float y);
+void ndos_x_send_joystick_button(int button, int pressed);
+// 0: starting, 1: guest hardware disabled/unsupported, 2: ready, -1: device failed.
+int ndos_x_joystick_status(void);
 void ndos_x_release_inputs(void);
 unsigned int ndos_x_get_mod_state(void);
 void ndos_x_set_scene_paused(int paused);
