@@ -112,7 +112,7 @@ On 2026-11-08, nDOS-X Debug builds passed for ARM64 device and Simulator, and th
 
 Tap **Engine Menu** (the list icon) in the landscape toolbar or the portrait control strip. In portrait, the list icon retains its established position beside the keyboard/control panel. The native sheet follows DOSBox-X's own menu hierarchy, labels, ordering, and checkmarks. Browse categories and submenus, select an action, and keep browsing; tap **Done** or dismiss the sheet to return to the guest.
 
-This version enables CPU timing controls (Turbo, Normal speed, Speed up, and Slow down), CPU speed presets, video frameskip, sound mute, stereo swap, ISO replacement, and disc ejection in configured CD-ROM drives. Other commands remain visible but disabled with an explanation. Desktop dialogs, external file pickers, capture, configuration saving, restart, shutdown, and other command families are deferred. Changes affect the running session; the menu does not save changes to the selected profile.
+This version enables CPU timing controls (Turbo, Normal speed, Speed up, and Slow down), CPU cycle increment/decrement, CPU speed presets, video frameskip, sound mute, stereo swap, ISO replacement, and disc ejection in configured CD-ROM drives. Other commands remain visible but disabled with an explanation. Desktop dialogs, external file pickers, capture, configuration saving, restart, shutdown, and other command families are deferred. Changes affect the running session; the menu does not save changes to the selected profile.
 
 Opening the sheet releases held input and pauses guest execution and audio. A separate worker control queue obtains immutable menu snapshots and dispatches supported upstream commands while the guest stays paused. Closing the menu removes only its own pause reason, so an inactive scene or another pause still keeps the guest paused. All live menu traversal and command dispatch happen on the engine worker; UIKit receives copied state. Closed sessions and engine stop invalidate pending results.
 
@@ -122,11 +122,21 @@ The host disables DOSBox-X's SDL desktop menu regardless of `showmenu` in the pr
 
 In **Engine Menu → CPU**, **Turbo (fast-forward)** toggles fast-forward and shows a checkmark while active. **Normal speed** turns Turbo off and restores 100% timing. **Speed up** and **Slow down** change timing speed by five percentage points; the minimum is 1%, and increasing from 1% reaches 5%. Their subtitles show the current timing percentage. During Turbo they show **After Turbo** because adjustments take effect when Turbo ends.
 
-Timing speed controls how quickly guest time advances relative to real time; it is separate from CPU cycles and the existing CPU speed presets. These controls leave fixed CPU cycle settings unchanged. Turbo retains DOSBox-X’s automatic-cycle behavior, temporarily suspending automatic adjustment. Increment cycles, Decrement cycles, and Edit cycles remain unavailable.
+Timing speed controls how quickly guest time advances relative to real time; it is separate from CPU cycles and the existing CPU speed presets. These controls leave fixed CPU cycle settings unchanged. Turbo retains DOSBox-X’s automatic-cycle behavior, temporarily suspending automatic adjustment. Edit cycles remains unavailable.
 
 Turbo honors the selected profile’s settings: `stop turbo on key=true` (the default) ends Turbo on the next guest keypress. `stop turbo after second` defaults to 0 (no timeout); a configured timeout counts wall-clock time, including time spent paused. The guest and audio remain paused while the menu is open. All timing changes affect only the current session and are not saved to the profile.
 
 On 2026-11-20, CPU timing checks passed against the real engine and hosted UIKit menu on an iOS 18.2 iPad Simulator. Coverage includes Turbo toggling, Normal reset, timing boundaries, immutable subtitles, retained menu pause, fixed-cycle preservation, automatic-cycle restoration, and timing retained across menu reopening. Patch-preparation fixtures, existing host lifecycle checks, and Release Simulator/unsigned device builds also passed. Physical iPad speed changes, Turbo cancellation on guest input, and return to normal speed remain device acceptance checks.
+
+### CPU cycle controls
+
+**Increment cycles** and **Decrement cycles** adjust how much CPU work the guest can perform per guest millisecond. With automatic adjustment inactive, both rows show **CPU cycles: 20000** (using the current working count). When automatic adjustment is active, they show **Automatic cycles target: 100%** instead. These readouts refresh after actions and when reopening the menu.
+
+Fixed-cycle steps honor the profile’s `cycleup` and `cycledown` settings: values below 100 specify percentage steps; values of 100 or greater specify absolute cycle counts. An increment of 20 multiplies cycles by 1.2, while a decrement of 20 divides by 1.2. Fixed cycles cannot be decremented below 1. With automatic adjustment active, the actions change its target by five percentage points, within 1–105%.
+
+The actions remain available during Turbo. Since Turbo temporarily suspends automatic adjustment, they change the working cycle count during Turbo; the automatic target readout returns when automatic adjustment resumes. Cycle actions leave the timing-speed percentage unchanged. They execute while the menu keeps the guest paused, affect only this session, and never save the profile. **Edit cycles** remains disabled.
+
+On 2026-11-20, real-engine checks passed for configured absolute steps, percentage arithmetic, minimum cycles, automatic-target bounds, Turbo interaction, timing independence, immutable readouts, menu reopening, and unchanged profile bytes. Hosted UIKit checks passed for both actions, readout updates, Turbo interaction, retained pause, and disabled Edit cycles on an iOS 18.2 iPad Simulator. Patch-preparation and host regressions plus Release Simulator/unsigned device builds passed. Physical iPad cycle adjustments and return-to-guest behavior remain pending acceptance checks.
 
 ## Change CDs while software is running
 

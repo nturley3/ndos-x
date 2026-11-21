@@ -7,3 +7,5 @@ Run `python3 scripts/prepare-ndos-x.py` after initializing submodules. Patches a
 `0009-virtual-touch-joystick.patch` attaches the host’s SDL virtual device before joystick enumeration, reports guest joystick readiness after mapper initialization, and detaches the device before SDL teardown. Axis/button updates stay in the host input queue; the patch does not bypass DOSBox-X’s mapper.
 
 `0010-cpu-timing-controls.patch` enables the four upstream CPU timing actions in the native menu and supplies contextual timing subtitles in worker snapshots. It preserves upstream Turbo, timing, and profile cancellation behavior.
+
+`0011-cpu-cycle-controls.patch` enables upstream cycle increment/decrement and adds working-cycle or automatic-target subtitles using the existing snapshot field. Profile step settings and Turbo behavior remain upstream-owned.

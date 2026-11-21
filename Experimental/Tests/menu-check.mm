@@ -11,7 +11,7 @@
 #include <thread>
 #include <cstdio>
 
-extern cpu_cycles_count_t CPU_CycleMax;
+extern cpu_cycles_count_t CPU_CycleMax, CPU_CycleUp, CPU_CycleDown, CPU_CyclePercUsed;
 extern bool CPU_CycleAutoAdjust, ticksLocked;
 extern uint32_t emulator_speed;
 extern uint8_t MSCDEX_GetSubUnit(char);
@@ -94,10 +94,11 @@ int main() { @autoreleasepool {
     makeISO(first,"DISC_ONE");makeISO(second,"DISC_TWO");makeISO(corrupt,"BAD",true);
     NSString *configuration=[directory stringByAppendingPathComponent:@"menu.conf"];
     [[NSString stringWithFormat:@"[sdl]\noutput=surface\nshowmenu=true\nautolock=false\nwaitonerror=false\n"
-      "[cpu]\ncore=normal\ncycles=fixed 20000\n[midi]\nmididevice=none\n[render]\nscaler=none\n"
+      "[cpu]\ncore=normal\ncycles=fixed 20000\ncycleup=500\ncycledown=250\n[midi]\nmididevice=none\n[render]\nscaler=none\n"
       "[ide, primary]\nenable=true\n[ide, secondary]\nenable=true\n[autoexec]\n"
       "imgmount d \"%@\" -t iso\nimgmount e empty -t iso\n",first]
         writeToFile:configuration atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    NSData *originalConfiguration=[NSData dataWithContentsOfFile:configuration];
     NSString *mount=[NSString stringWithFormat:@"mount c \"%@\"",directory];
     NSString *ready=[directory stringByAppendingPathComponent:@"READY.TXT"];
     SDL_SetMainReady();SDL_setenv("SDL_VIDEODRIVER","dummy",1);
@@ -127,10 +128,9 @@ int main() { @autoreleasepool {
     require(!mainMenu.isVisible(),"SDL menu suppressed despite showmenu=true");
     ndos_x_menu_invoke(session,@"cpu386-25",reply);wait();
     require(!failure && CPU_CycleMax==4595,"CPU preset updates actual cycles");
-    for (NSString *name in @[@"mapper_speedlock2",@"mapper_speednorm",@"mapper_speedup",@"mapper_slowdown"])
+    for (NSString *name in @[@"mapper_speedlock2",@"mapper_speednorm",@"mapper_speedup",@"mapper_slowdown",@"mapper_cycleup",@"mapper_cycledown"])
         require(find(items,name).enabled,"CPU timing action enabled");
-    for (NSString *name in @[@"mapper_cycleup",@"mapper_cycledown",@"mapper_editcycles"])
-        require(find(items,name) && !find(items,name).enabled,"unsupported cycle action remains disabled");
+    require(find(items,@"mapper_editcycles") && !find(items,@"mapper_editcycles").enabled,"cycle editor remains disabled");
     const auto fixedCycles=CPU_CycleMax;
     ndos_x_menu_invoke(session,@"mapper_speednorm",reply);wait();
     require(!failure && !ticksLocked && emulator_speed==100,"normal restores 100 percent");
@@ -170,6 +170,58 @@ int main() { @autoreleasepool {
     require(!ndos_x_send_keyboard(0,1,SDL_SCANCODE_A),"CPU menu retains guest pause");
     ndos_x_menu_refresh(session,reply);wait();
     require(!failure && [find(items,@"mapper_speedup").subtitle isEqual:@"Timing speed: 100%"],"refresh reports current timing");
+    require(CPU_CycleUp==500 && CPU_CycleDown==250,"cycle step settings loaded from profile");
+    require([find(items,@"mapper_cycleup").subtitle isEqual:@"CPU cycles: 4595"],"preset cycle count in subtitle");
+    NSArray *oldCycles=items;
+    ndos_x_menu_invoke(session,@"mapper_cycleup",reply);wait();
+    require(!failure && CPU_CycleMax==5095 && [find(items,@"mapper_cycledown").subtitle isEqual:@"CPU cycles: 5095"],"configured absolute increment and subtitle");
+    require([find(oldCycles,@"mapper_cycleup").subtitle isEqual:@"CPU cycles: 4595"],"cycle subtitle copied immutably");
+    ndos_x_menu_invoke(session,@"mapper_cycledown",reply);wait();
+    require(!failure && CPU_CycleMax==4845,"configured absolute decrement");
+    // The worker is paused and idle: set boundary/percentage fixtures directly.
+    CPU_CycleMax=1000;CPU_CycleUp=20;CPU_CycleDown=20;
+    ndos_x_menu_invoke(session,@"mapper_cycleup",reply);wait();
+    require(!failure && CPU_CycleMax==1200,"percentage increment");
+    ndos_x_menu_invoke(session,@"mapper_cycledown",reply);wait();
+    require(!failure && CPU_CycleMax==1000,"percentage decrement divides by step factor");
+    CPU_CycleDown=250;CPU_CycleMax=200;
+    ndos_x_menu_invoke(session,@"mapper_cycledown",reply);wait();
+    require(!failure && CPU_CycleMax==1,"fixed cycles clamp at one");
+    ndos_x_menu_invoke(session,@"mapper_cycledown",reply);wait();
+    require(!failure && CPU_CycleMax==1,"repeated decrement respects minimum");
+    CPU_CycleUp=500;CPU_CycleMax=fixedCycles;
+    CPU_CycleAutoAdjust=true;CPU_CyclePercUsed=100;
+    ndos_x_menu_refresh(session,reply);wait();
+    require(!failure && [find(items,@"mapper_cycleup").subtitle isEqual:@"Automatic cycles target: 100%"],"automatic target subtitle");
+    for (int i=0;i<2;i++) {
+        ndos_x_menu_invoke(session,@"mapper_cycleup",reply);wait();
+        require(!failure && CPU_CyclePercUsed==105,"automatic target upper bound");
+    }
+    ndos_x_menu_invoke(session,@"mapper_cycledown",reply);wait();
+    require(!failure && CPU_CyclePercUsed==100,"automatic target decreases five points");
+    for (int i=0;i<22;i++) {
+        ndos_x_menu_invoke(session,@"mapper_cycledown",reply);wait();
+        require(!failure,"automatic target decrement succeeds");
+    }
+    require(CPU_CyclePercUsed==1 && CPU_CycleMax==fixedCycles,"automatic target lower bound preserves working cycle count while paused");
+    require([find(items,@"mapper_cycledown").subtitle isEqual:@"Automatic cycles target: 1%"],"automatic lower bound subtitle");
+    ndos_x_menu_invoke(session,@"mapper_cycleup",reply);wait();
+    require(!failure && CPU_CyclePercUsed==6,"automatic target increases five points from minimum");
+    ndos_x_menu_invoke(session,@"mapper_speedlock2",reply);wait();
+    const auto turboCycles=CPU_CycleMax;
+    require(!failure && ticksLocked && !CPU_CycleAutoAdjust && find(items,@"mapper_cycleup").enabled,"cycle controls remain available in turbo");
+    require([find(items,@"mapper_cycleup").subtitle isEqual:[NSString stringWithFormat:@"CPU cycles: %lld",(long long)turboCycles]],"turbo displays working cycles");
+    ndos_x_menu_invoke(session,@"mapper_cycleup",reply);wait();
+    require(!failure && ticksLocked && CPU_CycleMax==turboCycles+500,"increment working cycles during turbo");
+    ndos_x_menu_invoke(session,@"mapper_cycledown",reply);wait();
+    require(!failure && ticksLocked && CPU_CycleMax==turboCycles+250,"decrement working cycles during turbo");
+    ndos_x_menu_invoke(session,@"mapper_speedlock2",reply);wait();
+    require(!failure && CPU_CycleAutoAdjust && CPU_CyclePercUsed==6 && [find(items,@"mapper_cycleup").subtitle isEqual:@"Automatic cycles target: 6%"],"leaving turbo restores automatic target readout");
+    require(emulator_speed==100,"cycle adjustments preserve timing speed");
+    CPU_CycleAutoAdjust=false;CPU_CyclePercUsed=100;
+    ndos_x_menu_invoke(session,@"cpu386-25",reply);wait();
+    require(!failure && CPU_CycleMax==fixedCycles,"restore fixed cycle fixture through preset");
+    require(!ndos_x_send_keyboard(0,1,SDL_SCANCODE_A),"cycle actions retain menu pause");
     ndos_x_menu_invoke(session,@"frameskip_3",reply);wait();
     require(!failure && render.frameskip.max==3 && find(items,@"frameskip_3").checked,"frameskip updates renderer and checkmark");
     require(!find(items,@"frameskip_0").checked,"frameskip selection clears previous checkmark");
@@ -298,6 +350,8 @@ int main() { @autoreleasepool {
     mainMenu.get_item("SoundMenu").hide(false);
     ndos_x_menu_invoke(session,@"mapper_speedup",reply);wait();
     require(!failure && emulator_speed==105,"timing changed before closing menu");
+    ndos_x_menu_invoke(session,@"mapper_cycleup",reply);wait();
+    require(!failure && CPU_CycleMax==fixedCycles+500 && emulator_speed==105,"cycle increment preserves adjusted timing");
     ndos_x_menu_close(session);
     ndos_x_menu_replace_iso(session,@"drive_D_mountimg",[NSURL fileURLWithPath:second],reply);wait();
     require(failure!=nil,"closed session cannot replace media");
@@ -305,6 +359,8 @@ int main() { @autoreleasepool {
     require(failure!=nil,"closed session cannot eject media");
     NDOSXMenuSession stoppedSession=ndos_x_menu_open(reply);wait();
     require(!failure && [find(items,@"mapper_speedup").subtitle isEqual:@"Timing speed: 105%"],"reopened menu retains session timing");
+    require([find(items,@"mapper_cycleup").subtitle isEqual:@"CPU cycles: 5095"],"cycle setting retained across menu reopening");
+    require([[NSData dataWithContentsOfFile:configuration] isEqual:originalConfiguration],"menu changes never write profile");
     ndos_x_menu_invoke(stoppedSession,@"drive_D_unmount",reply);
     ndos_x_request_stop();wait();require(failure!=nil,"stop invalidates eject completion");
     require(worker.wait_for(std::chrono::seconds(3))==std::future_status::ready,"engine stops after menu close");
