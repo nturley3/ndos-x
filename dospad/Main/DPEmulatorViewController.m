@@ -30,6 +30,7 @@
 #import "DPMouseManager.h"
 #import "DPKeyboardManager.h"
 #import "DPSettingsViewController.h"
+#include <math.h>
 #ifdef NDOS_X_HOST
 #import "NDOSXMenu.h"
 #import "NDOSXHost.h"
@@ -59,6 +60,20 @@ static struct {
     {TAG_INPUT_PIANO_KEYBOARD, @"pianokeys", @"Piano keyboard"},
 };
 #define NUM_BUTTON_INFO (sizeof(toggleButtonInfo)/sizeof(toggleButtonInfo[0]))
+
+static BOOL IsUsableLayoutSize(CGSize size)
+{
+    return isfinite(size.width) && isfinite(size.height) && size.width > 0 && size.height > 0;
+}
+
+static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect bounds)
+{
+    CGSize size = CGSizeMake(MIN(preferredSize.width, bounds.size.width),
+                             MIN(preferredSize.height, bounds.size.height));
+    CGFloat x = MAX(CGRectGetMinX(bounds), MIN(origin.x, CGRectGetMaxX(bounds) - size.width));
+    CGFloat y = MAX(CGRectGetMinY(bounds), MIN(origin.y, CGRectGetMaxY(bounds) - size.height));
+    return (CGRect){CGPointMake(x, y), size};
+}
 
 @interface DPEmulatorViewController ()
 <
@@ -102,6 +117,7 @@ static struct {
     
 #ifdef NDOS_X_HOST
     NDOSXMenuViewController *_engineMenu;
+    BOOL _landscapeKeyboardWasVisible;
 #endif
     BOOL _settingsPresented;
     BOOL _emulatorVisible;
@@ -160,6 +176,21 @@ static struct {
 	}
 }
 
+- (BOOL)usesRoomyLandscapeLayoutForSize:(CGSize)size
+{
+#ifdef NDOS_X_HOST
+    return size.width >= 700 && size.height >= 500;
+#else
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad;
+#endif
+}
+
+- (CGFloat)floatingKeyboardHeightForSize:(CGSize)size
+{
+    CGFloat preferredHeight = [self usesRoomyLandscapeLayoutForSize:size] ? 250 : 175;
+    return MIN(preferredHeight, size.height);
+}
+
 // Return YES if floating input of type is on the screen
 - (BOOL)removeFloatingInput:(DPFloatingInputType)type
 {
@@ -176,7 +207,7 @@ static struct {
         
         // Shrink screen when keyboard is enabled
         if ([DPSettings shared].autoShrinkScreenKeyboardEnabled && type == TAG_INPUT_KEYBOARD &&
-            [UIDevice.currentDevice.model isEqual:@"iPad"] && !_currentScene.isPortrait && shouldShrinkScreen)
+            [self usesRoomyLandscapeLayoutForSize:_rootContainer.bounds.size] && !_currentScene.isPortrait && shouldShrinkScreen)
         {
             [self toggleScreenSize];
         }
@@ -191,12 +222,8 @@ static struct {
 #ifdef NDOS_X_HOST
     if (type==TAG_INPUT_JOYSTICK && ![self checkJoystickAvailable]) return;
     if (_currentScene.isPortrait && (type==TAG_INPUT_GAMEPAD || type==TAG_INPUT_JOYSTICK)) {
-        DPGamepad *gamepad=[self findGamepad];
-        [gamepad releaseInput];
-        gamepad.tag=type;
-        gamepad.stickMode=type==TAG_INPUT_JOYSTICK;
-        gamepad.hidden=NO;
-        [self findKeyboard].hidden=YES;
+        _landscapeKeyboardWasVisible = NO;
+        [self showGamepadForInput:type];
         return;
     }
 #endif
@@ -223,7 +250,7 @@ static struct {
 	
 	switch (type) {
         case TAG_INPUT_NUMPAD:
-            [self createNumpad];
+            [self createNumpadAt:CGPointMake(CGRectGetMaxX(_rootContainer.bounds) - 160, 250) animated:YES];
             break;
         case TAG_INPUT_KEYBOARD:
             [self createPCKeyboard];
@@ -238,7 +265,7 @@ static struct {
             [self createJoystick];
             break;
         case TAG_INPUT_MOUSE_BUTTONS:
-            [self createMouseButtons];
+            [self createMouseButtonsAt:CGPointMake(0, 410) animated:YES];
             break;
         default:
             break;
@@ -434,8 +461,8 @@ static struct {
         //MARK: Screen shrink
         if (shouldShrinkScreen)
         {
-            if ([UIDevice.currentDevice.model isEqual:@"iPad"]) {
-                viewRect.size.height -= 250;
+            if ([self usesRoomyLandscapeLayoutForSize:viewRect.size]) {
+                viewRect.size.height -= [self floatingKeyboardHeightForSize:viewRect.size];
                 [self putScreen:viewRect scaleMode:[DPSettings shared].screenScaleMode];
             } else {
                 [self putScreen:viewRect scaleMode:DPScreenScaleModeAspectFit4x3];
@@ -486,7 +513,7 @@ static struct {
     }
     else
     {
-        if ([UIDevice.currentDevice.model isEqual:@"iPad"]) {
+        if ([self usesRoomyLandscapeLayoutForSize:size]) {
             return [_currentTheme findSceneByName:@"ipad-landscape"];
         }
         if (size.width <= 480) { // iPhone 4S
@@ -609,8 +636,8 @@ static struct {
 {
     CGRect viewRect = [self safeRootRect];
     //CGRect viewRect = CGRectMake(0,0,480,320);
-    NSLog(@"viewWillLayoutSubviews: %@", @(viewRect));
     [super viewWillLayoutSubviews];
+    if (!IsUsableLayoutSize(viewRect.size)) return;
     DPThemeScene *scene = [self findSceneForSize:viewRect.size];
     NSAssert(scene != nil, @"No scene for %@", @(viewRect));
     if (_currentScene == scene && _rootContainer &&
@@ -619,19 +646,37 @@ static struct {
         // No change
         return;
     }
+#ifdef NDOS_X_HOST
+    DPGamepad *gamepad = [self findGamepad];
+    NSInteger gamepadMode = gamepad && !gamepad.hidden ? gamepad.tag : TAG_INPUT_MIN;
+    UIView *mouseButtons = [self findInputView:TAG_INPUT_MOUSE_BUTTONS];
+    UIView *numberPad = [self findInputView:TAG_INPUT_NUMPAD];
+    if (_rootContainer && !_currentScene.isPortrait)
+        _landscapeKeyboardWasVisible = [self findInputView:TAG_INPUT_KEYBOARD] != nil;
+#endif
     if (_rootContainer) {
         NSLog(@"Recreate scene %@ %@, origin=%@", scene.name, @(viewRect), @(_rootContainer.bounds));
         [fullscreenPanel removeFromSuperview];
         fullscreenPanel = nil;
 #ifdef NDOS_X_HOST
-        for (UIView *view in _rootContainer.subviews)
-            if ([view isKindOfClass:DPGamepad.class]) [(DPGamepad *)view releaseInput];
+        [self releaseTouchControls];
+        [self.screenView cancelEmulatorTouches];
 #endif
         [_rootContainer removeFromSuperview];
     }
     _currentScene=scene;
     _rootContainer = [self createSceneView:_currentScene frame:viewRect];
     [self.view addSubview:_rootContainer];
+#ifdef NDOS_X_HOST
+    if (gamepadMode == TAG_INPUT_GAMEPAD || gamepadMode == TAG_INPUT_JOYSTICK) {
+        [self showGamepadForInput:gamepadMode];
+    } else if (fullscreenPanel) {
+        if (_landscapeKeyboardWasVisible) [self createPCKeyboard];
+        if (mouseButtons) [self createMouseButtonsAt:mouseButtons.frame.origin animated:NO];
+        if (numberPad) [self createNumpadAt:numberPad.frame.origin animated:NO];
+    }
+    [self refreshFullscreenPanel];
+#endif
     [self updateScreen];
 }
 
@@ -694,7 +739,7 @@ static struct {
 
 - (CGRect)landscapeToolbarFrame:(CGRect)bounds
 {
-    CGFloat maximumWidth = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? 700 : 480;
+    CGFloat maximumWidth = [self usesRoomyLandscapeLayoutForSize:bounds.size] ? 700 : 480;
     CGFloat width = MIN(maximumWidth, bounds.size.width);
     CGFloat y = [DPSettings shared].landbarToggleBottomScreen ? MAX(0, bounds.size.height - 44) : 0;
     return CGRectMake((bounds.size.width - width) / 2, y, width, 44);
@@ -717,7 +762,7 @@ static struct {
     }
     if ([keys containsObject:@"show_mouse_hold"] && ![DPSettings shared].showMouseHold)
         holdIndicator.alpha = 0;
-    if ([keys containsObject:@"auto_shrink_screen_keyboard_enabled"] && UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad &&
+    if ([keys containsObject:@"auto_shrink_screen_keyboard_enabled"] && [self usesRoomyLandscapeLayoutForSize:_rootContainer.bounds.size] &&
         !_currentScene.isPortrait && [self findInputView:TAG_INPUT_KEYBOARD]) {
         BOOL shrink = [DPSettings shared].autoShrinkScreenKeyboardEnabled;
         if (shrink != shouldShrinkScreen) [self toggleScreenSize];
@@ -739,24 +784,26 @@ static struct {
 }
 
 //MARK: - Numpad Controls
-- (void)createNumpad
+- (void)showFloatingControl:(UIView *)control atFrame:(CGRect)frame animated:(BOOL)animated
 {
-	KeyboardView *numpad = [[KeyboardView alloc] initWithFrame:CGRectMake(_rootContainer.bounds.size.width-160,450,160,200)
-	layout:@"kpad4x5"];
-	numpad.alpha = [DPSettings shared].floatAlpha;
-	numpad.tag = TAG_INPUT_NUMPAD;
-	[_rootContainer addSubview:numpad];
-    
-    CGPoint ptOrig = numpad.center;
-    [UIView animateWithDuration:0.3 animations:^{
-        numpad.center = CGPointMake(ptOrig.x, ptOrig.y-numpad.frame.size.height);
-    }];
+    control.alpha = [DPSettings shared].floatAlpha;
+    control.frame = animated ? CGRectOffset(frame, 0, frame.size.height) : frame;
+    [_rootContainer addSubview:control];
+    if (animated) [UIView animateWithDuration:0.3 animations:^{ control.frame = frame; }];
+}
+
+- (void)createNumpadAt:(CGPoint)origin animated:(BOOL)animated
+{
+    CGRect frame = FloatingControlFrame(origin, CGSizeMake(160, 200), _rootContainer.bounds);
+    KeyboardView *numberPad = [[KeyboardView alloc] initWithFrame:frame layout:@"kpad4x5"];
+    numberPad.tag = TAG_INPUT_NUMPAD;
+    [self showFloatingControl:numberPad atFrame:frame animated:animated];
 }
 
 //MARK: - Keyboard Controls
 - (void)createPCKeyboard
 {
-    const CGFloat keyboardHeight = [UIDevice.currentDevice.model  isEqual: @"iPad"] ? 250 : 175;
+	const CGFloat keyboardHeight = [self floatingKeyboardHeightForSize:_rootContainer.bounds.size];
 	CGRect rect = CGRectMake(0,
 		_rootContainer.bounds.size.height-keyboardHeight,
 		_rootContainer.bounds.size.width,
@@ -768,7 +815,7 @@ static struct {
 	kbd.tag = TAG_INPUT_KEYBOARD;
     
     // Shrink screen when keyboard is enabled
-    if ([DPSettings shared].autoShrinkScreenKeyboardEnabled && [UIDevice.currentDevice.model isEqual:@"iPad"] &&
+    if ([DPSettings shared].autoShrinkScreenKeyboardEnabled && [self usesRoomyLandscapeLayoutForSize:_rootContainer.bounds.size] &&
         !_currentScene.isPortrait && !shouldShrinkScreen)
     {
         [self toggleScreenSize];
@@ -811,10 +858,9 @@ static struct {
         _currentTheme
 #endif
         findSceneByName:(NSString*)[_currentScene getAttribute:@"gamepad"]];
-	CGFloat height = 240;
-	if ([UIDevice.currentDevice.model isEqual:@"iPad"]) {
-		height = _rootContainer.bounds.size.width*0.3;
-	}
+	CGSize size = _rootContainer.bounds.size;
+	CGFloat preferredHeight = [self usesRoomyLandscapeLayoutForSize:size] ? size.width * 0.3 : 240;
+	CGFloat height = MIN(preferredHeight, size.height);
 	CGRect rect = CGRectMake(0, CGRectGetMaxY(_rootContainer.bounds)-height,
 		_rootContainer.bounds.size.width, height);
 	
@@ -903,6 +949,21 @@ static struct {
 
 
 #ifdef NDOS_X_HOST
+- (void)showGamepadForInput:(DPFloatingInputType)type
+{
+    if (!_currentScene.isPortrait) {
+        if (type == TAG_INPUT_JOYSTICK) [self createJoystick];
+        else [self createGamepad];
+        return;
+    }
+    DPGamepad *gamepad = [self findGamepad];
+    [gamepad releaseInput];
+    gamepad.tag = type;
+    gamepad.stickMode = type == TAG_INPUT_JOYSTICK;
+    gamepad.hidden = NO;
+    [self findKeyboard].hidden = YES;
+}
+
 - (void)gamepadDidChangeMode:(DPGamepad *)gamepad
 {
     gamepad.tag=gamepad.stickMode?TAG_INPUT_JOYSTICK:TAG_INPUT_GAMEPAD;
@@ -965,6 +1026,7 @@ static struct {
 // Screen Resize
 -(void)onResize:(CGSize)sizeNew
 {
+    if (!IsUsableLayoutSize(sizeNew)) return;
     self.screenView.bounds = CGRectMake(0, 0, sizeNew.width, sizeNew.height);
     [self updateScreen];
 }
@@ -1018,9 +1080,9 @@ static struct {
 
 - (void)scaleScreenViewToSize:(CGSize)size center:(CGPoint)center
 {
-    CGFloat sw = self.screenView.bounds.size.width;
-    CGFloat sh = self.screenView.bounds.size.height;
-    self.screenView.transform = CGAffineTransformMakeScale(size.width/sw,size.height/sh);
+    CGSize source = self.screenView.bounds.size;
+    if (!IsUsableLayoutSize(size) || !IsUsableLayoutSize(source)) return;
+    self.screenView.transform = CGAffineTransformMakeScale(size.width / source.width, size.height / source.height);
 	self.screenView.center = CGPointMake(center.x, center.y);
 	if ([DPSettings shared].pixelatedScaling) {
 		self.screenView.layer.magnificationFilter = kCAFilterNearest;
@@ -1106,23 +1168,22 @@ static struct {
 
 //MARK: - Mouse Controls
 
-- (void)createMouseButtons
+- (void)createMouseButtonsAt:(CGPoint)origin animated:(BOOL)animated
 {
-    CGFloat vw = _rootContainer.bounds.size.width;
-    CGFloat vh = _rootContainer.bounds.size.height;
-    UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 450, 200, 40)];
-    // Transparency
+    CGRect frame = FloatingControlFrame(origin, CGSizeMake(200, 40), _rootContainer.bounds);
+    UIView *container = [[UIView alloc] initWithFrame:frame];
     container.tag = TAG_INPUT_MOUSE_BUTTONS;
-    container.alpha = [DPSettings shared].floatAlpha;
-    [_rootContainer addSubview:container];
+    CGFloat thumbWidth = frame.size.width / 5;
+    CGFloat buttonWidth = thumbWidth * 2;
+    CGFloat height = frame.size.height;
     
     // Add movable control
-    DPThumbView *thumbView = [[DPThumbView alloc] initWithFrame:CGRectMake(0, 0, 40, 40)];
+    DPThumbView *thumbView = [[DPThumbView alloc] initWithFrame:CGRectMake(0, 0, thumbWidth, height)];
     thumbView.text = @"☰";
     [container addSubview:thumbView];
     
     // Left Mouse Button
-    UIButton *btnMouseLeft = [[UIButton alloc] initWithFrame:CGRectMake(40,0,80,40)];
+    UIButton *btnMouseLeft = [[UIButton alloc] initWithFrame:CGRectMake(thumbWidth, 0, buttonWidth, height)];
     [btnMouseLeft setImage:[_currentScene getImage:@"assets/mouse-button-left.png"] forState:UIControlStateNormal];
     [btnMouseLeft setImage:[_currentScene getImage:@"assets/mouse-button-left-pressed.png"] forState:UIControlStateHighlighted];
     [btnMouseLeft addTarget:self
@@ -1130,11 +1191,11 @@ static struct {
           forControlEvents:UIControlEventTouchDown];
     [btnMouseLeft addTarget:self
                     action:@selector(onMouseLeftUp)
-          forControlEvents:UIControlEventTouchUpInside];
+          forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     [container addSubview:btnMouseLeft];
     
     // Right Mouse Button
-    UIButton *btnMouseRight = [[UIButton alloc] initWithFrame:CGRectMake(120,0,80,40)];
+    UIButton *btnMouseRight = [[UIButton alloc] initWithFrame:CGRectMake(thumbWidth + buttonWidth, 0, buttonWidth, height)];
     [btnMouseRight setImage:[_currentScene getImage:@"assets/mouse-button-right.png"] forState:UIControlStateNormal];
     [btnMouseRight setImage:[_currentScene getImage:@"assets/mouse-button-right-pressed.png"]
         forState:UIControlStateHighlighted];
@@ -1143,14 +1204,10 @@ static struct {
            forControlEvents:UIControlEventTouchDown];
     [btnMouseRight addTarget:self
                     action:@selector(onMouseRightUp)
-          forControlEvents:UIControlEventTouchUpInside];
+          forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     [container addSubview:btnMouseRight];
     
-    // Animate the mouse control to position
-    CGPoint ptOrig = container.center;
-    [UIView animateWithDuration:0.3 animations:^{
-        container.center = CGPointMake(ptOrig.x, ptOrig.y-container.frame.size.height);
-    }];
+    [self showFloatingControl:container atFrame:frame animated:animated];
 }
 
 - (void)onMouseLeftDown
@@ -1283,7 +1340,11 @@ static struct {
     if (dospad_settings_open()) return;
     CGSize size1 = self.screenView.frame.size;
     CGSize size2 = self.screenView.bounds.size;
-    [self.screenView sendMouseMotion:0 x:x/size1.width*size2.width y:-y/size1.height*size2.height];
+    if (!IsUsableLayoutSize(size1) || !IsUsableLayoutSize(size2)) return;
+    CGFloat motionX = x / size1.width * size2.width;
+    CGFloat motionY = -y / size1.height * size2.height;
+    if (isfinite(motionX) && isfinite(motionY))
+        [self.screenView sendMouseMotion:0 x:motionX y:motionY];
 }
 
 //MARK: - Piano Keyboard

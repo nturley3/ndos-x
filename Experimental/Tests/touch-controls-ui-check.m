@@ -125,12 +125,21 @@
     XCTAssertTrue([emulator removeFloatingInput:gamepadType]);
     XCTAssertNil([self visibleGamepad:emulator.view]);
     [emulator createFloatingInput:joystickType];
+    DPGamepad *portraitPad = [self visibleGamepad:emulator.view];
+    XCTAssertTrue(portraitPad.stickMode);
+    [portraitPad.stick updateJoystickAxis:CGPointMake(25,25)];
     if (@available(iOS 16.0,*)) {
         [scene requestGeometryUpdateWithPreferences:[[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscapeLeft] errorHandler:nil];
     }
-    XCTAssertTrue([self waitUntil:^BOOL{return emulator.view.bounds.size.width>emulator.view.bounds.size.height;}]);
-    [emulator createFloatingInput:joystickType];
-    pad=[self visibleGamepad:emulator.view];XCTAssertTrue(pad.stickMode);
+    XCTAssertTrue([self waitUntil:^BOOL{
+        DPGamepad *landscapePad = [self visibleGamepad:emulator.view];
+        return emulator.view.bounds.size.width > emulator.view.bounds.size.height &&
+            landscapePad != nil && landscapePad != portraitPad;
+    }]);
+    pad = [self visibleGamepad:emulator.view];
+    XCTAssertTrue(pad.stickMode);
+    XCTAssertTrue(CGPointEqualToPoint(portraitPad.stick.axisPosition,CGPointZero));
+    XCTAssertTrue(CGPointEqualToPoint(pad.stick.axisPosition,CGPointZero));
     XCTAssertTrue([self containsButton:@"Engine Menu" inView:emulator.view]);
     [self attachScreenshot:@"iPad landscape joystick" view:emulator.view];
     [pad.stick updateJoystickAxis:CGPointMake(25,25)];
