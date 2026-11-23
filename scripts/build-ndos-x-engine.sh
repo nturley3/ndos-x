@@ -55,7 +55,14 @@ export CPPFLAGS="-I$ndos_x_prefix/include" LDFLAGS="-L$ndos_x_prefix/lib"
 export PKG_CONFIG_LIBDIR="$ndos_x_prefix/lib/pkgconfig" PKG_CONFIG_PATH=
 export SDL2_CONFIG="$ndos_x_prefix/bin/sdl2-config"
 if [[ "$ndos_x_arch" == arm64 ]]; then ndos_x_host=aarch64-apple-ios; else ndos_x_host=x86_64-apple-ios; fi
-ndos_x_signature=$(cat "$ndos_x_root/Experimental/dependencies.json" "$0" "$ndos_x_root"/Patches/ndos-x/dosbox-x/*.patch | shasum -a 256 | cut -d' ' -f1)
+# Autoconf records the compiler and SDK paths in the generated Makefiles.
+ndos_x_sdk_build=$(xcrun --sdk "$ndos_x_sdk" --show-sdk-build-version)
+ndos_x_signature=$(
+    {
+        printf '%s\n' "$CC" "$CXX" "$ndos_x_sdk_build"
+        cat "$ndos_x_root/Experimental/dependencies.json" "$0" "$ndos_x_root"/Patches/ndos-x/dosbox-x/*.patch
+    } | shasum -a 256 | cut -d' ' -f1
+)
 if [[ ! -f "$ndos_x_build/dosbox-x/.ndos-x-configuration" ]] || [[ "$(cat "$ndos_x_build/dosbox-x/.ndos-x-configuration")" != "$ndos_x_signature" ]]; then
     (cd "$ndos_x_build/dosbox-x" && "$ndos_x_root/vendor/dosbox-x/configure" \
         --host="$ndos_x_host" --enable-sdl2 --disable-sdl2test --disable-sdltest \
