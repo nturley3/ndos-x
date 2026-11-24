@@ -576,7 +576,7 @@ extern void dospad_resume(void);
     NSInteger rows = 0;
     for (NSInteger section = 0; section < [settings numberOfSectionsInTableView:settings.tableView]; section++)
         rows += [settings tableView:settings.tableView numberOfRowsInSection:section];
-    XCTAssertEqual(rows, 20);
+    XCTAssertEqual(rows, 21);
     NSIndexPath *path = [NSIndexPath indexPathForRow:0 inSection:0];
     UITableViewCell *cell = [settings tableView:settings.tableView cellForRowAtIndexPath:path];
     UISwitch *control = (id)cell.accessoryView;
@@ -601,8 +601,31 @@ extern void dospad_resume(void);
     slider.value = previousTransparency;
     [slider sendActionsForControlEvents:UIControlEventValueChanged];
     NSString *scaleKey = @"screen_scale_mode";
+    NSString *sizeKey = @"screen_landscape_size";
     id previousScale = [[DPSettings shared] valueForPreferenceKey:scaleKey];
+    id previousSize = [[DPSettings shared] valueForPreferenceKey:sizeKey];
     NSIndexPath *scalePath = [NSIndexPath indexPathForRow:1 inSection:2];
+    NSIndexPath *sizePath = [NSIndexPath indexPathForRow:scalePath.row + 1 inSection:scalePath.section];
+    [[DPSettings shared] setValue:@1 forPreferenceKey:sizeKey];
+    UITableViewCell *sizeCell = [settings tableView:settings.tableView cellForRowAtIndexPath:sizePath];
+    UIStackView *sizeStack = nil;
+    for (UIView *view in sizeCell.contentView.subviews)
+        if ([view isKindOfClass:UIStackView.class]) sizeStack = (UIStackView *)view;
+    UISlider *sizeSlider = (UISlider *)sizeStack.arrangedSubviews.lastObject;
+    UILabel *sizeLabel = (UILabel *)sizeStack.arrangedSubviews.firstObject;
+    XCTAssertTrue([sizeSlider isKindOfClass:UISlider.class]);
+    XCTAssertEqualObjects(sizeSlider.accessibilityLabel, @"Landscape size");
+    XCTAssertEqualObjects(sizeSlider.accessibilityValue, @"100%");
+    XCTAssertEqual(sizeSlider.minimumValue, 0.5);
+    XCTAssertEqual(sizeSlider.maximumValue, 1.0);
+    sizeSlider.value = 0.746;
+    [sizeSlider sendActionsForControlEvents:UIControlEventValueChanged];
+    XCTAssertEqualWithAccuracy([DPSettings shared].landscapeSize, 0.75, 0.0001);
+    XCTAssertTrue([sizeLabel.text hasSuffix:@"75%"]);
+    [sizeSlider accessibilityIncrement];
+    XCTAssertEqualObjects(sizeSlider.accessibilityValue, @"76%");
+    [sizeSlider accessibilityDecrement];
+    XCTAssertEqualObjects(sizeSlider.accessibilityValue, @"75%");
     NSArray<NSString *> *titles = @[@"Fill (centered)", @"Fill (original)", @"Fill (to bottom)", @"Fit 4:3", @"Fit 16:10", @"Fit 16:9"];
     NSArray<NSNumber *> *values = @[@(DPScreenScaleModeFill), @(DPScreenScaleModeFillOriginal),
         @(DPScreenScaleModeFillToBottom),
@@ -629,8 +652,11 @@ extern void dospad_resume(void);
         XCTAssertEqual([DPSettings shared].screenScaleMode, [selectedScale integerValue]);
         NSDictionary *saved = [NSUserDefaults.standardUserDefaults persistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
         XCTAssertEqualObjects(saved[scaleKey], selectedScale);
+        XCTAssertEqualWithAccuracy([saved[sizeKey] doubleValue], 0.75, 0.0001);
+        XCTAssertEqualWithAccuracy([DPSettings shared].landscapeSize, 0.75, 0.0001);
     }
     [[DPSettings shared] setValue:previousScale forPreferenceKey:scaleKey];
+    [[DPSettings shared] setValue:previousSize forPreferenceKey:sizeKey];
     // Opening a second sheet is ignored.
     [emulator showOption:nil];
     XCTAssertEqual(emulator.presentedViewController, navigation);

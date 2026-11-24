@@ -31,6 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) BOOL doubleTapAsRightClick;
 @property (readonly) float mouseSpeed;
 @property (readonly) DPScreenScaleMode screenScaleMode;
+@property (readonly) double landscapeSize;
 @property (readonly) float floatAlpha; // overlay controls
 @property (readonly) BOOL showMouseHold;
 @property (readonly) BOOL autoOpenLastPackage;

@@ -793,7 +793,8 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
     NSSet *keys = note.userInfo[@"keys"];
     if ([keys containsObject:@"toolbar_auto_hide_delay"])
         [fullscreenPanel applyAutoHideDelay:[DPSettings shared].toolbarAutoHideDelay];
-    if ([keys containsObject:@"screen_scale_mode"] || [keys containsObject:@"screen_pixelated"])
+    if ([keys containsObject:@"screen_scale_mode"] || [keys containsObject:@"screen_landscape_size"] ||
+        [keys containsObject:@"screen_pixelated"])
         [self updateScreen];
     if ([keys containsObject:@"transparency"]) [self updateAlpha];
     if ([keys containsObject:@"landbar_toggle_bottom_screen"] && fullscreenPanel.superview)
@@ -1074,17 +1075,13 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
     [self updateScreen];
 }
 
-// scale the screen view to fill the available rect,
-// and keep it at 4:3 unless it's a wide screen (16:10).
-// Return the occupied rect.
+// Apply the landscape preset and size adjustment around the available rectangle's center.
 - (CGRect)putScreen:(CGRect)availRect scaleMode:(DPScreenScaleMode)scaleMode
 {
 	CGFloat cx = CGRectGetMidX(availRect);
 	CGFloat cy = CGRectGetMidY(availRect);
 	CGFloat w = availRect.size.width;
 	CGFloat h = availRect.size.height;
-    CGFloat sw = self.screenView.bounds.size.width;
-    CGFloat sh = self.screenView.bounds.size.height;
 
 	switch (scaleMode) {
 		case DPScreenScaleModeAspectFit4x3:
@@ -1108,6 +1105,9 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
 		default:
 			break;
 	}
+    CGFloat multiplier = [DPSettings shared].landscapeSize;
+    w *= multiplier;
+    h *= multiplier;
 	[self scaleScreenViewToSize:CGSizeMake(w, h) center:CGPointMake(cx, cy)];
     return CGRectMake(cx-w/2, cy-h/2, w, h);
 }

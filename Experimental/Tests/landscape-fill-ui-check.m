@@ -43,6 +43,23 @@
     XCTAssertEqualWithAccuracy(CGRectGetMaxY(guest), CGRectGetMaxY(expected), 0.01);
 }
 
+- (CGRect)scaledRect:(CGRect)rect by:(CGFloat)size
+{
+    return CGRectInset(rect, CGRectGetWidth(rect) * (1 - size) / 2, CGRectGetHeight(rect) * (1 - size) / 2);
+}
+
+- (void)assertSizesForPresetFrame:(CGRect)presetFrame emulator:(DPEmulatorViewController *)emulator bottomStrip:(CGPoint)bottomStrip
+{
+    for (NSNumber *size in @[@0.5, @0.75, @1.0]) {
+        [DPSettings.shared setValue:size forPreferenceKey:@"screen_landscape_size"];
+        CGRect expected = [self scaledRect:presetFrame by:size.doubleValue];
+        [self assertGuestFrame:[self guestFrame:emulator] matchesRect:expected];
+        UIView *hit = [emulator.view hitTest:bottomStrip withEvent:nil];
+        XCTAssertEqual(hit == emulator.screenView, CGRectContainsPoint(expected, bottomStrip),
+            @"Unexpected bottom-strip hit at size %@ and point %@", size, NSStringFromCGPoint(bottomStrip));
+    }
+}
+
 - (void)assertCenteredFill:(DPEmulatorViewController *)emulator
 {
     CGRect bounds = emulator.view.bounds;
@@ -93,8 +110,10 @@
 
     DPSettings *settings = DPSettings.shared;
     NSString *scaleKey = @"screen_scale_mode";
+    NSString *sizeKey = @"screen_landscape_size";
     NSString *shrinkKey = @"auto_shrink_screen_keyboard_enabled";
     id previousScale = [settings valueForPreferenceKey:scaleKey];
+    id previousSize = [settings valueForPreferenceKey:sizeKey];
     id previousShrink = [settings valueForPreferenceKey:shrinkKey];
     UIEdgeInsets previousInsets = emulator.additionalSafeAreaInsets;
     const NSInteger keyboardType = 1001; // TAG_INPUT_KEYBOARD
@@ -102,6 +121,7 @@
     UIInterfaceOrientation previousOrientation = scene.interfaceOrientation;
     @try {
         [settings setValue:@(DPScreenScaleModeFill) forPreferenceKey:scaleKey];
+        [settings setValue:@1 forPreferenceKey:sizeKey];
         [settings setValue:@YES forPreferenceKey:shrinkKey];
         for (NSNumber *direction in @[@(UIInterfaceOrientationLandscapeLeft), @(UIInterfaceOrientationLandscapeRight)]) {
             UIInterfaceOrientation orientation = direction.integerValue;
@@ -137,10 +157,18 @@
             throughBottom.size.height += insets.bottom;
             XCTAssertGreaterThan(insets.bottom, 0);
             CGPoint bottomStrip = CGPointMake(CGRectGetMidX(safe), CGRectGetMaxY(safe) + insets.bottom / 2);
-            [settings setValue:@(DPScreenScaleModeAspectFit4x3) forPreferenceKey:scaleKey];
-            CGRect fit = [self guestFrame:emulator];
-            XCTAssertEqualWithAccuracy(CGRectGetWidth(fit) / CGRectGetHeight(fit), 4.0 / 3.0, 0.01);
-            XCTAssertEqualWithAccuracy(CGRectGetMidY(fit), CGRectGetMidY(safe), 0.01);
+            NSDictionary<NSNumber *, NSNumber *> *fitRatios = @{
+                @(DPScreenScaleModeAspectFit4x3): @(4.0 / 3.0),
+                @(DPScreenScaleModeAspectFit16x10): @(16.0 / 10.0),
+                @(DPScreenScaleModeAspectFit16x9): @(16.0 / 9.0)
+            };
+            for (NSNumber *mode in fitRatios) {
+                [settings setValue:mode forPreferenceKey:scaleKey];
+                CGRect fit = [self guestFrame:emulator];
+                XCTAssertEqualWithAccuracy(CGRectGetWidth(fit) / CGRectGetHeight(fit), fitRatios[mode].doubleValue, 0.01);
+                XCTAssertEqualWithAccuracy(CGRectGetMidY(fit), CGRectGetMidY(safe), 0.01);
+                [self assertSizesForPresetFrame:fit emulator:emulator bottomStrip:bottomStrip];
+            }
             for (NSNumber *mode in @[@(DPScreenScaleModeFillOriginal), @(DPScreenScaleModeFillToBottom), @(DPScreenScaleModeFill)]) {
                 [settings setValue:mode forPreferenceKey:scaleKey];
                 CGRect fullSize = [self guestFrame:emulator];
@@ -151,27 +179,41 @@
                     [self assertGuestFrame:fullSize matchesRect:fillsBottom ? throughBottom : safe];
                 }
                 if (fillsBottom) XCTAssertFalse(emulator.screenView.superview.clipsToBounds);
-                UIView *bottomHit = [emulator.view hitTest:bottomStrip withEvent:nil];
-                XCTAssertEqual(bottomHit == emulator.screenView, fillsBottom,
-                    @"Unexpected bottom-strip hit in scale mode %@ at %@: %@", mode, NSStringFromCGPoint(bottomStrip), bottomHit);
+                [self assertSizesForPresetFrame:fullSize emulator:emulator bottomStrip:bottomStrip];
 
                 if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
+                    [settings setValue:@0.75 forPreferenceKey:sizeKey];
                     [emulator createFloatingInput:keyboardType];
                     UIView *keyboard = [emulator findInputView:keyboardType];
                     XCTAssertNotNil(keyboard);
                     CGRect keyboardFrame = [keyboard.superview convertRect:keyboard.frame toView:emulator.view];
                     CGRect aboveKeyboard = safe;
                     aboveKeyboard.size.height = CGRectGetMinY(keyboardFrame) - CGRectGetMinY(safe);
-                    [self assertGuestFrame:[self guestFrame:emulator] matchesRect:aboveKeyboard];
+                    [self assertGuestFrame:[self guestFrame:emulator] matchesRect:[self scaledRect:aboveKeyboard by:0.75]];
                     XCTAssertTrue([emulator removeFloatingInput:keyboardType]);
-                    [self assertGuestFrame:[self guestFrame:emulator] matchesRect:fullSize];
+                    [self assertGuestFrame:[self guestFrame:emulator] matchesRect:[self scaledRect:fullSize by:0.75]];
+                    [settings setValue:@1 forPreferenceKey:sizeKey];
                 }
             }
         }
+
+        emulator.additionalSafeAreaInsets = UIEdgeInsetsZero;
+        [self requestOrientation:UIInterfaceOrientationPortrait inScene:scene];
+        XCTAssertTrue([self waitUntil:^BOOL{
+            return scene.interfaceOrientation == UIInterfaceOrientationPortrait &&
+                CGRectGetHeight(emulator.view.bounds) > CGRectGetWidth(emulator.view.bounds) &&
+                emulator.transitionCoordinator == nil && emulator.view.layer.animationKeys.count == 0;
+        }]);
+        [emulator.view setNeedsLayout];
+        [emulator.view layoutIfNeeded];
+        CGRect portraitFrame = [self guestFrame:emulator];
+        [settings setValue:@0.5 forPreferenceKey:sizeKey];
+        [self assertGuestFrame:[self guestFrame:emulator] matchesRect:portraitFrame];
     } @finally {
         [emulator removeFloatingInput:keyboardType];
         emulator.additionalSafeAreaInsets = previousInsets;
         [settings setValue:previousScale forPreferenceKey:scaleKey];
+        [settings setValue:previousSize forPreferenceKey:sizeKey];
         [settings setValue:previousShrink forPreferenceKey:shrinkKey];
         if (previousOrientation != UIInterfaceOrientationUnknown) {
             [self requestOrientation:previousOrientation inScene:scene];
