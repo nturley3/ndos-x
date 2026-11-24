@@ -15,7 +15,9 @@ typedef NS_ENUM(NSInteger, DPScreenScaleMode) {
 	DPScreenScaleModeAspectFit4x3,
 	// Allow for 16:10, but if 4:3 is better, will use it instead
 	DPScreenScaleModeAspectFit16x10,
-	DPScreenScaleModeAspectFit16x9
+	DPScreenScaleModeAspectFit16x9,
+	DPScreenScaleModeFillOriginal,
+	DPScreenScaleModeFillToBottom
 };
 
 NS_ASSUME_NONNULL_BEGIN

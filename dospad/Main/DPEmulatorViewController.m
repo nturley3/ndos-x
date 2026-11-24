@@ -75,6 +75,24 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
     return (CGRect){CGPointMake(x, y), size};
 }
 
+@interface DPEmulatorSceneView : UIImageView
+@property (nonatomic, weak) UIView *screenView;
+@end
+
+@implementation DPEmulatorSceneView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
+{
+    // The guest can extend below the scene while controls stay inside the safe area.
+    if (point.y >= CGRectGetMaxY(self.bounds) && !self.hidden && self.userInteractionEnabled && self.alpha > 0.01) {
+        UIView *screen = self.screenView;
+        if (screen.superview == self) {
+            return [screen hitTest:[self convertPoint:point toView:screen] withEvent:event];
+        }
+    }
+    return [super hitTest:point withEvent:event];
+}
+@end
+
 @interface DPEmulatorViewController ()
 <
 	SDL_uikitopenglview_delegate,
@@ -470,7 +488,31 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
         }
         else
         {
-            [self putScreen:viewRect scaleMode:[DPSettings shared].screenScaleMode];
+            DPScreenScaleMode scaleMode = [DPSettings shared].screenScaleMode;
+            if (scaleMode == DPScreenScaleModeFill) {
+                CGRect bounds = self.view.bounds;
+                CGRect safe = _rootContainer.frame;
+                CGFloat topInset = CGRectGetMinY(safe) - CGRectGetMinY(bounds);
+                CGFloat bottomInset = CGRectGetMaxY(bounds) - CGRectGetMaxY(safe);
+                CGFloat margin = MAX(topInset, bottomInset);
+                UIScreen *display = self.view.window.windowScene.screen;
+                CGSize displaySize = display.bounds.size;
+                if (CGSizeEqualToSize(display.nativeBounds.size, CGSizeMake(1668, 2420)) &&
+                    CGRectGetWidth(safe) == CGRectGetWidth(bounds) &&
+                    CGRectGetWidth(bounds) == MAX(displaySize.width, displaySize.height) &&
+                    CGRectGetHeight(bounds) == MIN(displaySize.width, displaySize.height)) {
+                    // The 11-inch iPad display mask needs 38 points at the full-width corners.
+                    margin = MAX(margin, 38);
+                }
+                CGFloat height = CGRectGetHeight(bounds) - 2 * margin;
+                if (height > 0) {
+                    viewRect.origin.y += margin - topInset;
+                    viewRect.size.height = height;
+                }
+            } else if (scaleMode == DPScreenScaleModeFillToBottom) {
+                viewRect.size.height += MAX(0, CGRectGetMaxY(self.view.bounds) - CGRectGetMaxY(_rootContainer.frame));
+            }
+            [self putScreen:viewRect scaleMode:scaleMode];
         }
     }
 }
@@ -533,7 +575,7 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
     CGFloat scaleX = rootRect.size.width / scene.size.width;
     CGFloat scaleY = rootRect.size.height / scene.size.height;
 
-    UIImageView *sceneContainer = [[UIImageView alloc] initWithFrame:rootRect];
+    DPEmulatorSceneView *sceneContainer = [[DPEmulatorSceneView alloc] initWithFrame:rootRect];
     sceneContainer.userInteractionEnabled = YES;
     if (scene.backgroundImageURL) {
         sceneContainer.image = [UIImage imageWithContentsOfFile:scene.backgroundImageURL.path];
@@ -554,6 +596,7 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
         if ([type isEqualToString:@"screen"])
         {
             [sceneContainer addSubview:self.screenView];
+            sceneContainer.screenView = self.screenView;
             _screenRect = frame;
         }
         else if ([type isEqualToString:@"cycles-label"])

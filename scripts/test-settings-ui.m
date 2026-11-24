@@ -600,17 +600,37 @@ extern void dospad_resume(void);
     XCTAssertEqualWithAccuracy([DPSettings shared].floatAlpha, 0.4, 0.001);
     slider.value = previousTransparency;
     [slider sendActionsForControlEvents:UIControlEventValueChanged];
-    // Select a scale, return to settings, and preserve the original value.
-    id previousScale = [[DPSettings shared] valueForPreferenceKey:@"screen_scale_mode"];
-    [settings tableView:settings.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:1 inSection:2]];
-    [self settle];
-    UITableViewController *choice = (id)navigation.topViewController;
-    XCTAssertNotEqual(choice, settings);
-    XCTAssertNotNil(choice.navigationItem.rightBarButtonItem);
-    [choice tableView:choice.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:3 inSection:0]];
-    [self settle];
-    XCTAssertEqual([DPSettings shared].screenScaleMode, DPScreenScaleModeAspectFit16x9);
-    [[DPSettings shared] setValue:previousScale forPreferenceKey:@"screen_scale_mode"];
+    NSString *scaleKey = @"screen_scale_mode";
+    id previousScale = [[DPSettings shared] valueForPreferenceKey:scaleKey];
+    NSIndexPath *scalePath = [NSIndexPath indexPathForRow:1 inSection:2];
+    NSArray<NSString *> *titles = @[@"Fill (centered)", @"Fill (original)", @"Fill (to bottom)", @"Fit 4:3", @"Fit 16:10", @"Fit 16:9"];
+    NSArray<NSNumber *> *values = @[@(DPScreenScaleModeFill), @(DPScreenScaleModeFillOriginal),
+        @(DPScreenScaleModeFillToBottom),
+        @(DPScreenScaleModeAspectFit4x3), @(DPScreenScaleModeAspectFit16x10), @(DPScreenScaleModeAspectFit16x9)];
+    id selectedScale = previousScale;
+    for (NSNumber *selection in @[@1, @2, @0, @5]) {
+        [settings tableView:settings.tableView didSelectRowAtIndexPath:scalePath];
+        [self settle];
+        UITableViewController *choice = (id)navigation.topViewController;
+        XCTAssertNotEqual(choice, settings);
+        XCTAssertNotNil(choice.navigationItem.rightBarButtonItem);
+        XCTAssertEqual([choice tableView:choice.tableView numberOfRowsInSection:0], titles.count);
+        for (NSUInteger row = 0; row < titles.count; row++) {
+            NSIndexPath *path = [NSIndexPath indexPathForRow:row inSection:0];
+            UITableViewCell *option = [choice tableView:choice.tableView cellForRowAtIndexPath:path];
+            XCTAssertEqualObjects(option.textLabel.text, titles[row]);
+            XCTAssertEqual(option.accessoryType, [selectedScale isEqual:values[row]]
+                ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone);
+        }
+        [choice tableView:choice.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:selection.integerValue inSection:0]];
+        [self settle];
+        selectedScale = values[selection.unsignedIntegerValue];
+        XCTAssertEqual(navigation.topViewController, settings);
+        XCTAssertEqual([DPSettings shared].screenScaleMode, [selectedScale integerValue]);
+        NSDictionary *saved = [NSUserDefaults.standardUserDefaults persistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
+        XCTAssertEqualObjects(saved[scaleKey], selectedScale);
+    }
+    [[DPSettings shared] setValue:previousScale forPreferenceKey:scaleKey];
     // Opening a second sheet is ignored.
     [emulator showOption:nil];
     XCTAssertEqual(emulator.presentedViewController, navigation);
