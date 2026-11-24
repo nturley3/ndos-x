@@ -30,6 +30,9 @@ _Avoid_: Unmount drive, remove drive
 **Touch controls**:
 The onscreen controls used to operate DOS software with fingers, including the virtual joystick and keyboard gamepad.
 
+**Touch control layout**:
+The placement of the two touch control groups for one screen orientation, shared by the virtual joystick and keyboard gamepad.
+
 **Virtual joystick**:
 Touch controls that operate a joystick recognized by the DOS or Windows guest.
 _Avoid_: Keyboard gamepad when referring to joystick input

@@ -2,6 +2,7 @@
 #import "DPThemeSceneView.h"
 
 @class DPGamepad;
+@class DPGamepadLayout;
 @class DPGamepadConfiguration;
 
 typedef NS_ENUM(NSInteger, DPGamepadButtonIndex) {
@@ -108,6 +109,9 @@ typedef enum
 
 @interface DPGamepad : DPThemeSceneView
 
+#ifdef NDOS_X_HOST
+@property (nonatomic, strong) DPGamepadLayout *controlLayout;
+#endif
 @property (nonatomic,assign) BOOL editing;
 @property (nonatomic,assign) BOOL gravity;
 @property (nonatomic,weak) id<DPGamepadDelegate> gamepadDelegate;
