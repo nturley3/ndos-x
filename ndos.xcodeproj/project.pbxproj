@@ -407,6 +407,7 @@
 		E778B2CD123919ED008AF49A /* SDLnetUDP.c in Sources */ = {isa = PBXBuildFile; fileRef = E778B2C7123919ED008AF49A /* SDLnetUDP.c */; };
 		E77E08532548007C00B5B11D /* default.idostheme in Resources */ = {isa = PBXBuildFile; fileRef = E77E08522548007C00B5B11D /* default.idostheme */; };
 		E77E085E2549126900B5B11D /* DPGamepad.m in Sources */ = {isa = PBXBuildFile; fileRef = E77E085C2549126700B5B11D /* DPGamepad.m */; };
+		DF5A713961024569AED5A850 /* DPGamepadLayout.m in Sources */ = {isa = PBXBuildFile; fileRef = DF5A713961024569AED5A851 /* DPGamepadLayout.m */; };
 		E77E08702549265F00B5B11D /* DPThemeSceneView.m in Sources */ = {isa = PBXBuildFile; fileRef = E77E086F2549265F00B5B11D /* DPThemeSceneView.m */; };
 		E77E0881254C080500B5B11D /* UIColor+hexColor.m in Sources */ = {isa = PBXBuildFile; fileRef = E77E087F254C080300B5B11D /* UIColor+hexColor.m */; };
 		E7960FC02564CE7100556B9D /* Analog.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E7960F612564CE7100556B9D /* Analog.cpp */; };
@@ -1187,6 +1188,8 @@
 		E77DB05B11B5E17500B78E69 /* libstdc++.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = "libstdc++.dylib"; path = "usr/lib/gcc/arm-apple-darwin10/4.2.1/libstdc++.dylib"; sourceTree = SDKROOT; };
 		E77E08522548007C00B5B11D /* default.idostheme */ = {isa = PBXFileReference; lastKnownFileType = folder; path = default.idostheme; sourceTree = "<group>"; };
 		E77E085C2549126700B5B11D /* DPGamepad.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DPGamepad.m; sourceTree = "<group>"; };
+		DF5A713961024569AED5A851 /* DPGamepadLayout.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DPGamepadLayout.m; sourceTree = "<group>"; };
+		DF5A713961024569AED5A852 /* DPGamepadLayout.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DPGamepadLayout.h; sourceTree = "<group>"; };
 		E77E085D2549126700B5B11D /* DPGamepad.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DPGamepad.h; sourceTree = "<group>"; };
 		E77E086E2549265F00B5B11D /* DPThemeSceneView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DPThemeSceneView.h; sourceTree = "<group>"; };
 		E77E086F2549265F00B5B11D /* DPThemeSceneView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DPThemeSceneView.m; sourceTree = "<group>"; };
@@ -2299,6 +2302,8 @@
 				E7FDFB58254EBD5800A6DE66 /* DPGamepadConfiguration.h */,
 				E7FDFB59254EBD5800A6DE66 /* DPGamepadConfiguration.m */,
 				E77E085C2549126700B5B11D /* DPGamepad.m */,
+				DF5A713961024569AED5A851 /* DPGamepadLayout.m */,
+				DF5A713961024569AED5A852 /* DPGamepadLayout.h */,
 				E77E085D2549126700B5B11D /* DPGamepad.h */,
 				E7FDFB21254E6AF200A6DE66 /* DPGamepadButtonEditor.h */,
 				E7FDFB22254E6AF200A6DE66 /* DPGamepadButtonEditor.m */,
@@ -4075,6 +4080,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0200000000000000000002 /* NDOSXMenuViewController.m in Sources */,
+				DF5A713961024569AED5A850 /* DPGamepadLayout.m in Sources */,
 				E9A3AFB00954972EDAD52784 /* NDOSXHost.mm in Sources */,
 				94185E62AF8F1041DE651AC3 /* NDOSXScreenView.m in Sources */,
 				AA0100000000000000000002 /* NDOSXProfiles.m in Sources */,

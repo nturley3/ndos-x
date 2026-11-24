@@ -7,6 +7,7 @@
 #import "SoundEffect.h"
 #ifdef NDOS_X_HOST
 #import "NDOSXHost.h"
+#import "DPGamepadLayout.h"
 #endif
 
 #define CENTER_OF_RECT(r) CGPointMake(r.size.width/2,r.size.height/2)
@@ -675,13 +676,23 @@ if ((x) > 1.0) { \
 
 - (void)setHidden:(BOOL)hidden
 {
-    if (hidden && !self.hidden) [self releaseInput];
+    if (hidden && !self.hidden) {
+#ifdef NDOS_X_HOST
+        [self.controlLayout cancel];
+#endif
+        [self releaseInput];
+    }
     [super setHidden:hidden];
 }
 
 - (void)willMoveToSuperview:(UIView *)newSuperview
 {
-    if (!newSuperview) [self releaseInput];
+    if (!newSuperview) {
+#ifdef NDOS_X_HOST
+        [self.controlLayout cancel];
+#endif
+        [self releaseInput];
+    }
     [super willMoveToSuperview:newSuperview];
 }
 

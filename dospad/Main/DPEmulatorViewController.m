@@ -22,6 +22,9 @@
 #import "ColorTheme.h"
 #import "DPTheme.h"
 #import "DPGamepad.h"
+#ifdef NDOS_X_HOST
+#import "DPGamepadLayout.h"
+#endif
 #import "DPGamepadButtonEditor.h"
 #import "DPThumbView.h"
 #import "UIViewController+Alert.h"
@@ -662,6 +665,19 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
         }
         else if ([type isEqualToString:@"button"])
         {
+#ifdef NDOS_X_HOST
+            // Compact portrait scenes have a single gamepad slot and no floppy slot.
+            if (scene.isPortrait && [x[@"id"] isEqual:@"gamepad-toggle"] &&
+                ![[scene.nodes valueForKey:@"id"] containsObject:@"floppy"]) {
+                CGRect pickerFrame;
+                CGRect menuFrame;
+                CGRectDivide(frame, &pickerFrame, &menuFrame, CGRectGetWidth(frame) / 2, CGRectMinXEdge);
+                UIButton *picker = [[UIButton alloc] initWithFrame:pickerFrame];
+                [self registerButton:picker name:@"floppy"];
+                [sceneContainer addSubview:picker];
+                frame = menuFrame;
+            }
+#endif
             UIButton *btn = [[UIButton alloc] initWithFrame:frame];
             [btn setImage:[scene getImage:x[@"bg"]]
                 forState:UIControlStateNormal];
@@ -691,7 +707,9 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
     }
 #ifdef NDOS_X_HOST
     DPGamepad *gamepad = [self findGamepad];
-    NSInteger gamepadMode = gamepad && !gamepad.hidden ? gamepad.tag : TAG_INPUT_MIN;
+    [gamepad.controlLayout cancel];
+    BOOL sameOrientation = scene.isPortrait == _currentScene.isPortrait;
+    NSInteger gamepadMode = sameOrientation && gamepad && !gamepad.hidden ? gamepad.tag : TAG_INPUT_MIN;
     UIView *mouseButtons = [self findInputView:TAG_INPUT_MOUSE_BUTTONS];
     UIView *numberPad = [self findInputView:TAG_INPUT_NUMPAD];
     if (_rootContainer && !_currentScene.isPortrait)
@@ -711,6 +729,7 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
     _rootContainer = [self createSceneView:_currentScene frame:viewRect];
     [self.view addSubview:_rootContainer];
 #ifdef NDOS_X_HOST
+    if (_currentScene.isPortrait) [self configurePlacement:[self findGamepad]];
     if (gamepadMode == TAG_INPUT_GAMEPAD || gamepadMode == TAG_INPUT_JOYSTICK) {
         [self showGamepadForInput:gamepadMode];
     } else if (fullscreenPanel) {
@@ -797,8 +816,12 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
         [keys containsObject:@"screen_pixelated"])
         [self updateScreen];
     if ([keys containsObject:@"transparency"]) [self updateAlpha];
-    if ([keys containsObject:@"landbar_toggle_bottom_screen"] && fullscreenPanel.superview)
+    if ([keys containsObject:@"landbar_toggle_bottom_screen"] && fullscreenPanel.superview) {
         fullscreenPanel.frame = [self landscapeToolbarFrame:fullscreenPanel.superview.bounds];
+#ifdef NDOS_X_HOST
+        [[self findGamepad].controlLayout reloadPositions];
+#endif
+    }
     if ([keys containsObject:kNumpadEnabled] || [keys containsObject:kJoystickEnabled]) {
         if (![self allowsInput:TAG_INPUT_NUMPAD]) [self removeFloatingInput:TAG_INPUT_NUMPAD];
         if (![self allowsInput:TAG_INPUT_JOYSTICK]) [self removeFloatingInput:TAG_INPUT_JOYSTICK];
@@ -914,6 +937,9 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
 		[gamepad applyConfiguration:_gamepadConfig];
 	}
 	gamepad.gamepadDelegate = self;
+#ifdef NDOS_X_HOST
+    [self configurePlacement:gamepad];
+#endif
 	return gamepad;
 }
 
@@ -993,6 +1019,23 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
 
 
 #ifdef NDOS_X_HOST
+- (void)configurePlacement:(DPGamepad *)pad
+{
+    if (!pad) return;
+    CGPoint origin = pad.frame.origin;
+    pad.frame = _rootContainer.bounds;
+    for (UIView *view in pad.subviews)
+        view.frame = CGRectOffset(view.frame, origin.x, origin.y);
+    NSMutableArray *reserved = [NSMutableArray array];
+    for (UIView *view in _rootContainer.subviews) {
+        if ([view isKindOfClass:UIControl.class] || view == fullscreenPanel) [reserved addObject:view];
+    }
+    __weak DPEmulatorViewController *weakSelf = self;
+    pad.controlLayout = [[DPGamepadLayout alloc] initWithGamepad:pad editorHost:self.view reservedViews:reserved prepareInput:^{
+        [weakSelf.screenView cancelEmulatorTouches];
+    }];
+}
+
 - (void)showGamepadForInput:(DPFloatingInputType)type
 {
     if (!_currentScene.isPortrait) {

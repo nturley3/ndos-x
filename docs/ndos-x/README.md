@@ -49,9 +49,13 @@ Switching configurations requires a full app relaunch. Shut down Windows inside 
 
 ## Touch game controls
 
-On iPad in portrait, tap the **Touch controls** gamecontroller icon in the former floppy-drive position and choose **Keyboard Gamepad** or **Joystick**. **Hide controls** returns to the keyboard. In landscape, use **Gamepad** or **Joystick** in the landscape toolbar; tap the selected control again to dismiss it. Controls start hidden. Portrait puts controls below the guest; landscape puts translucent controls over the guest. Rotation releases input and recreates the layout with controls hidden. Engine Menu remains separately available in both orientations.
+On iPhone or iPad in portrait, tap the **Touch controls** gamecontroller icon and choose **Keyboard Gamepad** or **Joystick**. **Hide controls** returns to the keyboard. In landscape, use **Gamepad** or **Joystick** in the landscape toolbar; tap the selected control again to dismiss it. Controls start hidden. By default, portrait puts controls below the guest and landscape puts translucent controls over the guest. Rotation releases input and recreates the layout with controls hidden. Engine Menu remains separately available in both orientations.
 
-**Keyboard Gamepad** sends configured keys or text and works without guest joystick hardware. The default D-pad sends arrow keys, and the action buttons send Ctrl, Enter, Alt, and Space. The mode button switches between the D-pad and analog stick. The edit button exposes button bindings, labels, and visibility; tap an action button or D-pad direction to edit its keyboard binding. Text bindings fire on release. In joystick mode, buttons **1** and **2** operate the guest joystick; the other buttons retain their keyboard bindings. To edit the underlying keyboard bindings for buttons 1/2, switch to Keyboard Gamepad. Opacity uses the existing floating-controls transparency setting.
+**Keyboard Gamepad** sends configured keys or text and works without guest joystick hardware. The default D-pad sends arrow keys, and the action buttons send Ctrl, Enter, Alt, and Space. The mode button switches between the D-pad and analog stick. Choose **Edit Gamepad Bindings** from the edit button to change bindings, labels, and visibility; tap an action button or D-pad direction to edit its keyboard binding. Text bindings fire on release. In joystick mode, buttons **1** and **2** operate the guest joystick; the other buttons retain their keyboard bindings. To edit the underlying keyboard bindings for buttons 1/2, switch to Keyboard Gamepad. Opacity uses the existing floating-controls transparency setting.
+
+Choose **Move Controls** from the edit button to arrange the controls. Drag the stick, D-pad, or a left shoulder button to move the left group. Drag an action button or a right shoulder button to move the right group. You can move either group over the game picture. A drop that clips a control or covers another target returns the group to its previous spot.
+
+Tap the checkmark where the edit button was. **Done** saves the arrangement for all games on this device in the current orientation. **Cancel** discards your changes. **Restore Defaults** previews the starting positions, which you can then save with **Done**. Rotating during an edit discards the preview. Portrait and landscape each remember their own layout.
 
 To enable the virtual joystick, edit the selected machine configuration through Files:
 
@@ -102,7 +106,9 @@ python3 scripts/test-settings-ui.py --host nDOS-X \
   --derived-data output/ndos-x-touch-ui
 ```
 
-Automated checks cover isolated mapping persistence, SDL axis limits and polled state, simultaneous buttons, lifecycle release, and a real DOS COM program reading joystick axes/buttons through BIOS INT 15h. iPad Simulator UI checks cover both orientations, hidden startup, control assets, multitouch button handling, cancellation, binding editor access, and Engine Menu access. Screenshots are retained in the XCTest result bundle.
+Automated checks cover isolated mapping persistence, SDL axis limits and polled state, simultaneous buttons, lifecycle release, and a real DOS COM program reading joystick axes/buttons through BIOS INT 15h. The touch-controls suite exercises both orientations, hidden startup, control assets, multitouch button handling, group swaps, invalid drops, touch routing over the guest, saved layouts, cancellation, binding editor access, and Engine Menu access. Screenshots are retained in the XCTest result bundle.
+
+On 2026-11-24 the layout checks passed on an unfolded physical iPhone Duo, an iPhone Duo simulator, and an 11-inch iPad Pro simulator. At full left and full down, the physical Duo had 94 and 101 points of clearance from the corresponding safe-area edges in portrait, and 56 and 103 points in landscape. A second launch into another machine profile restored the saved position. Physical iPad and hands-on thumb comfort checks remain pending.
 
 The project author confirmed Windows 98 joystick operation on the physical iPad after applying the sound-card/game-port workaround above. Windows 95 calibration, representative joystick and keyboard-controlled games, and broader physical iPad touch testing remain pending. The automated DOS diagnostics do not replace those checks.
 
