@@ -1,5 +1,32 @@
 #import "DPSettingsViewController.h"
 #import "DPSettings.h"
+#include <math.h>
+
+@interface DPSettingsSlider : UISlider
+@property (nonatomic) float step;
+@end
+
+@implementation DPSettingsSlider
+- (void)accessibilityIncrement
+{
+    if (self.step <= 0) {
+        [super accessibilityIncrement];
+        return;
+    }
+    self.value = MIN(self.maximumValue, self.value + self.step);
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
+}
+
+- (void)accessibilityDecrement
+{
+    if (self.step <= 0) {
+        [super accessibilityDecrement];
+        return;
+    }
+    self.value = MAX(self.minimumValue, self.value - self.step);
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
+}
+@end
 
 @interface DPSettingsChoiceController : UITableViewController
 @property (nonatomic, copy) NSDictionary *specifier;
@@ -116,7 +143,8 @@
         label.numberOfLines = 0;
         label.text = [NSString stringWithFormat:@"%@: %.0f%%", item[@"Title"], [value floatValue] * 100];
         label.isAccessibilityElement = NO;
-        UISlider *control = [[UISlider alloc] init];
+        DPSettingsSlider *control = [[DPSettingsSlider alloc] init];
+        control.step = [item[@"StepValue"] floatValue];
         control.minimumValue = [item[@"MinimumValue"] floatValue];
         control.maximumValue = [item[@"MaximumValue"] floatValue];
         control.value = [value floatValue];
@@ -148,8 +176,12 @@
 {
     [[DPSettings shared] setValue:@(control.on) forPreferenceKey:[self.controls objectForKey:control][@"Key"]];
 }
-- (void)sliderChanged:(UISlider *)control
+- (void)sliderChanged:(DPSettingsSlider *)control
 {
+    if (control.step > 0) {
+        float steps = roundf((control.value - control.minimumValue) / control.step);
+        control.value = control.minimumValue + steps * control.step;
+    }
     NSDictionary *item = [self.controls objectForKey:control];
     [[DPSettings shared] setValue:@(control.value) forPreferenceKey:item[@"Key"]];
     UIStackView *stack = (UIStackView *)control.superview;

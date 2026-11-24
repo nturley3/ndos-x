@@ -15,7 +15,9 @@ typedef NS_ENUM(NSInteger, DPScreenScaleMode) {
 	DPScreenScaleModeAspectFit4x3,
 	// Allow for 16:10, but if 4:3 is better, will use it instead
 	DPScreenScaleModeAspectFit16x10,
-	DPScreenScaleModeAspectFit16x9
+	DPScreenScaleModeAspectFit16x9,
+	DPScreenScaleModeFillOriginal,
+	DPScreenScaleModeFillToBottom
 };
 
 NS_ASSUME_NONNULL_BEGIN
@@ -29,6 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) BOOL doubleTapAsRightClick;
 @property (readonly) float mouseSpeed;
 @property (readonly) DPScreenScaleMode screenScaleMode;
+@property (readonly) double landscapeSize;
 @property (readonly) float floatAlpha; // overlay controls
 @property (readonly) BOOL showMouseHold;
 @property (readonly) BOOL autoOpenLastPackage;

@@ -161,7 +161,9 @@
 			<integer>1</integer>
 			<key>Titles</key>
 			<array>
-				<string>Fill screen</string>
+				<string>Fill (centered)</string>
+				<string>Fill (original)</string>
+				<string>Fill (to bottom)</string>
 				<string>Fit 4:3</string>
 				<string>Fit 16:10</string>
 				<string>Fit 16:9</string>
@@ -169,17 +171,37 @@
 			<key>Values</key>
 			<array>
 				<integer>1</integer>
+				<integer>5</integer>
+				<integer>6</integer>
 				<integer>2</integer>
 				<integer>3</integer>
 				<integer>4</integer>
 			</array>
 			<key>ShortTitles</key>
 			<array>
-				<string>fill</string>
+				<string>Centered fill</string>
+				<string>Original fill</string>
+				<string>Fill to bottom</string>
 				<string>4:3</string>
 				<string>16:10</string>
 				<string>16:9</string>
 			</array>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSSliderSpecifier</string>
+			<key>Title</key>
+			<string>Landscape size</string>
+			<key>Key</key>
+			<string>screen_landscape_size</string>
+			<key>DefaultValue</key>
+			<real>1</real>
+			<key>MinimumValue</key>
+			<real>0.5</real>
+			<key>MaximumValue</key>
+			<real>1</real>
+			<key>StepValue</key>
+			<real>0.01</real>
 		</dict>
 		<dict>
 			<key>Type</key>

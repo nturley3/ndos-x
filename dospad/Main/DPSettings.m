@@ -6,9 +6,11 @@
 //
 
 #import "DPSettings.h"
+#include <math.h>
 
 #define kTapAsClick @"tap_as_click"
 #define kScreenScaleMode @"screen_scale_mode"
+#define kLandscapeSize @"screen_landscape_size"
 #define kDoubleTapAsRightClick @"double_tap_as_right_click"
 #define kMouseSpeed            @"mouse_speed"
 #define kTransparency          @"transparency"
@@ -140,6 +142,8 @@ static BOOL isTimedToolbarDelay(id value)
 	NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
     _tapAsClick = [defs boolForKey:kTapAsClick];
 	_screenScaleMode = [defs integerForKey:kScreenScaleMode];
+    double size = [defs doubleForKey:kLandscapeSize];
+    _landscapeSize = isfinite(size) ? MAX(0.5, MIN(size, 1.0)) : 1.0;
 	_doubleTapAsRightClick = [defs integerForKey:kDoubleTapAsRightClick];
 	_mouseSpeed = [defs floatForKey:kMouseSpeed];
 	_floatAlpha = 1-[defs floatForKey:kTransparency];

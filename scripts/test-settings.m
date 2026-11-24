@@ -112,6 +112,7 @@ int main(void)
         check(settings.autoOpenLastPackage, @"Registering defaults preserves existing selections");
         check(settings.tapAsClick && settings.keyPressSound && settings.gamepadSound, @"Boolean defaults are preserved");
         check(settings.screenScaleMode == DPScreenScaleModeFill, @"Scale default is preserved");
+        check(settings.landscapeSize == 1.0, @"Landscape size defaults to 100 percent");
         check(fabsf(settings.mouseSpeed - 0.5f) < 0.001f && fabsf(settings.floatAlpha - 0.8f) < 0.001f, @"Slider defaults are preserved");
         check(![[settings valueForPreferenceKey:@"smart_keyboard_mappings"] boolValue], @"Keyboard mapping default is false");
         check(!settings.keepScreenAwake, @"Keep screen awake defaults to false for existing users");
@@ -193,13 +194,14 @@ int main(void)
             check([settings valueForPreferenceKey:key] != nil, @"Every control has a registered default");
             id value = item[@"DefaultValue"];
             if ([item[@"Type"] isEqual:@"PSToggleSwitchSpecifier"]) value = @(![value boolValue]);
-            else if ([item[@"Type"] isEqual:@"PSSliderSpecifier"]) value = item[@"MaximumValue"];
+            else if ([item[@"Type"] isEqual:@"PSSliderSpecifier"])
+                value = [value isEqual:item[@"MaximumValue"]] ? item[@"MinimumValue"] : item[@"MaximumValue"];
             else if ([item[@"Type"] isEqual:@"PSMultiValueSpecifier"]) value = [item[@"Values"] lastObject];
             [settings setValue:value forPreferenceKey:key];
             check([[settings valueForPreferenceKey:key] isEqual:value], @"Every control can be saved");
             check([[defaults persistentDomainForName:suite][key] isEqual:value], @"Edits reach persistent defaults");
         }
-        check(controls == 20, @"All 20 preferences are represented");
+        check(controls == 21, @"All 21 preferences are represented");
 
         // A defaults change coming from outside the controller must refresh on main.
         [defaults setFloat:0.25 forKey:@"mouse_speed"];
