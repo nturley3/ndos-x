@@ -285,6 +285,14 @@ extern "C" int SDL_main(int, char **) {NSLog(@"nDOS-X owns startup through its h
 - (instancetype)initWithRecord:(NSDictionary *)record children:(NSArray<NDOSXMenuItem *> *)children;
 @end
 @implementation NDOSXMenuItem
++ (NDOSXMenuItem *)findItem:(NSString *)name inItems:(NSArray<NDOSXMenuItem *> *)items {
+    for (NDOSXMenuItem *item in items) {
+        if ([item.name isEqualToString:name]) return item;
+        NDOSXMenuItem *child=[self findItem:name inItems:item.children];
+        if (child) return child;
+    }
+    return nil;
+}
 - (instancetype)initWithRecord:(NSDictionary *)record children:(NSArray<NDOSXMenuItem *> *)children {
     if ((self=[super init])) {
         _name=[record[@"name"] copy];_title=[record[@"title"] copy];

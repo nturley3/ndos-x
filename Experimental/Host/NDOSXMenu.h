@@ -5,6 +5,7 @@
 NS_ASSUME_NONNULL_BEGIN
 // Immutable copies of the upstream menu. No engine objects cross to UIKit.
 @interface NDOSXMenuItem : NSObject
++ (nullable NDOSXMenuItem *)findItem:(NSString *)name inItems:(NSArray<NDOSXMenuItem *> *)items;
 @property(nonatomic, copy, readonly) NSString *name;
 @property(nonatomic, copy, readonly) NSString *title;
 @property(nonatomic, readonly) NSInteger type; // action=0, submenu=1, separator=2/3
