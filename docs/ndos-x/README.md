@@ -126,7 +126,7 @@ The host disables DOSBox-X's SDL desktop menu regardless of `showmenu` in the pr
 
 ### CPU timing controls
 
-In **Engine Menu → CPU**, **Turbo (fast-forward)** toggles fast-forward and shows a checkmark while active. **Normal speed** turns Turbo off and restores 100% timing. **Speed up** and **Slow down** change timing speed by five percentage points; the minimum is 1%, and increasing from 1% reaches 5%. Their subtitles show the current timing percentage. During Turbo they show **After Turbo** because adjustments take effect when Turbo ends.
+In **Engine Menu → CPU**, **Turbo (fast-forward)** toggles fast-forward and shows a checkmark while active. The **Turbo (fast-forward)** switch at the top of **Settings → General** controls the same running session. Turning it off resumes the current timing speed. **Normal speed** turns Turbo off and restores 100% timing. **Speed up** and **Slow down** change timing speed by five percentage points; the minimum is 1%, and increasing from 1% reaches 5%. Their subtitles show the current timing percentage. During Turbo they show **After Turbo** because adjustments take effect when Turbo ends.
 
 Timing speed controls how quickly guest time advances relative to real time; it is separate from CPU cycles and the existing CPU speed presets. These controls leave fixed CPU cycle settings unchanged. Turbo retains DOSBox-X’s automatic-cycle behavior, temporarily suspending automatic adjustment. Edit cycles remains unavailable.
 
@@ -186,6 +186,9 @@ bash scripts/test-ndos-x-menu.sh booted
 python3 scripts/test-settings-ui.py --destination 'platform=iOS Simulator,id=DEVICE_UUID' \
     --host nDOS-X --source Experimental/Tests/menu-ui-check.m \
     --test-name EngineMenuTests --derived-data output/ndos-x-menu-ui
+python3 scripts/test-settings-ui.py --destination 'platform=iOS Simulator,id=DEVICE_UUID' \
+    --host nDOS-X --source Experimental/Tests/turbo-settings-ui-check.m \
+    --test-name TurboSettingsTests --derived-data output/ndos-x-menu-ui
 ```
 
 The real-engine menu check also verifies live ISO replacement, disc ejection with hardware retained, repeated eject and reinsertion in DOS and the booted-guest path, insertion into an empty drive, IDE-only targets, corrupt/missing-image recovery (including moved active media), independent CD drives, app-local path restrictions, stale sessions, stop, and the booted-guest replacement branch using generated media. It does not replace physical-device DOS/Windows acceptance.

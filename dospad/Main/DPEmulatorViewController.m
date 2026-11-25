@@ -137,6 +137,7 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
     UIDocumentPickerViewController *_guardedImageMountPicker;
     
 #ifdef NDOS_X_HOST
+    DPSettingsViewController *_settingsSheet;
     NDOSXMenuViewController *_engineMenu;
     BOOL _landscapeKeyboardWasVisible;
 #endif
@@ -1349,6 +1350,10 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
 - (void)finishSettings
 {
     if (!_settingsPresented) return;
+#ifdef NDOS_X_HOST
+    [_settingsSheet closeTurboSession];
+    _settingsSheet = nil;
+#endif
     _settingsPresented = NO;
     dospad_set_settings_open(NO);
     self.view.userInteractionEnabled = YES;
@@ -1406,12 +1411,15 @@ static CGRect FloatingControlFrame(CGPoint origin, CGSize preferredSize, CGRect 
     self.view.userInteractionEnabled = NO;
     DPSettingsViewController *settings = [[DPSettingsViewController alloc] init];
     __weak DPEmulatorViewController *weakSelf = self;
+#ifdef NDOS_X_HOST
+    _settingsSheet = settings;
+#endif
     settings.didFinish = ^{ [weakSelf finishSettings]; };
     UINavigationController *navigation = [[UINavigationController alloc] initWithRootViewController:settings];
     navigation.modalPresentationStyle = UIModalPresentationFormSheet;
     navigation.preferredContentSize = CGSizeMake(560, 680);
-    navigation.presentationController.delegate = self;
     [self presentViewController:navigation animated:YES completion:nil];
+    navigation.presentationController.delegate = self;
 }
 
 // MARK: GCMouse Manager

@@ -138,17 +138,9 @@
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     if (_session) ndos_x_menu_close(_session);
 }
-- (NDOSXMenuItem *)findItem:(NSString *)name inItems:(NSArray<NDOSXMenuItem *> *)items {
-    for (NDOSXMenuItem *item in items) {
-        if ([item.name isEqualToString:name]) return item;
-        NDOSXMenuItem *child=[self findItem:name inItems:item.children];
-        if (child) return child;
-    }
-    return nil;
-}
 - (void)reloadMenu {
     NDOSXMenuViewController *root=self.root;
-    NSArray *items=self.menuRoot ? [self findItem:self.submenuName inItems:root.menuItems].children : root.menuItems;
+    NSArray *items=self.menuRoot ? [NDOSXMenuItem findItem:self.submenuName inItems:root.menuItems].children : root.menuItems;
     NSMutableArray *groups=[NSMutableArray array];
     NSMutableArray *group=[NSMutableArray array];
     for (NDOSXMenuItem *item in items) {

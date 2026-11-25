@@ -1,6 +1,12 @@
 #import "DPSettingsViewController.h"
 #import "DPSettings.h"
 #include <math.h>
+#ifdef NDOS_X_HOST
+#import "NDOSXMenu.h"
+
+static NSString *const TurboAction = @"mapper_speedlock2";
+static NSString *const TurboHint = @"Your machine profile can end Turbo on a keypress or after a timeout.";
+#endif
 
 @interface DPSettingsSlider : UISlider
 @property (nonatomic) float step;
@@ -62,6 +68,11 @@
 @end
 
 @interface DPSettingsViewController ()
+#ifdef NDOS_X_HOST
+@property (nonatomic) NDOSXMenuSession turboSession;
+@property (nonatomic) NSUInteger turboRequest;
+@property (nonatomic, strong) UISwitch *turboSwitch;
+#endif
 @property (nonatomic, copy) NSArray<NSDictionary *> *sections;
 @property (nonatomic, strong) NSMapTable<UIControl *, NSDictionary *> *controls;
 @end
@@ -83,6 +94,11 @@
         if ([item[@"Type"] isEqual:@"PSGroupSpecifier"]) {
             rows = [NSMutableArray array];
             [sections addObject:@{@"group":item, @"rows":rows}];
+#ifdef NDOS_X_HOST
+            if ([item[@"Title"] isEqual:@"General"]) {
+                [rows addObject:@{@"Type":TurboAction, @"Title":@"Turbo (fast-forward)"}];
+            }
+#endif
         } else if (rows) {
             [rows addObject:item];
         }
@@ -90,7 +106,64 @@
     self.sections = sections;
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 60;
+#ifdef NDOS_X_HOST
+    self.turboSwitch = [[UISwitch alloc] init];
+    self.turboSwitch.enabled = NO;
+    [self.turboSwitch addTarget:self action:@selector(changeTurbo:) forControlEvents:UIControlEventValueChanged];
+    self.turboSession = ndos_x_menu_open([self turboCompletion]);
+    NSNotificationCenter *notifications = NSNotificationCenter.defaultCenter;
+    [notifications addObserver:self selector:@selector(refreshTurbo:) name:UIApplicationDidBecomeActiveNotification object:nil];
+    [notifications addObserver:self selector:@selector(engineStopped:) name:@"NDOSXEngineStopped" object:nil];
+#endif
 }
+#ifdef NDOS_X_HOST
+- (NDOSXMenuCompletion)turboCompletion
+{
+    self.turboSwitch.enabled = NO;
+    NSUInteger request = ++_turboRequest;
+    __weak DPSettingsViewController *weakSelf = self;
+    return ^(NSArray<NDOSXMenuItem *> *items, NSError *error) {
+        DPSettingsViewController *sheet = weakSelf;
+        if (!sheet || sheet.turboRequest != request) return;
+        NDOSXMenuItem *item = error ? nil : [NDOSXMenuItem findItem:TurboAction inItems:items];
+        sheet.turboSwitch.on = item.checked;
+        sheet.turboSwitch.enabled = item.enabled;
+    };
+}
+
+- (void)changeTurbo:(UISwitch *)sender
+{
+    if (!sender.enabled) return;
+    ndos_x_menu_invoke(self.turboSession, TurboAction, [self turboCompletion]);
+}
+
+- (void)refreshTurbo:(NSNotification *)notification
+{
+    if (self.turboSession) ndos_x_menu_refresh(self.turboSession, [self turboCompletion]);
+}
+
+- (void)engineStopped:(NSNotification *)notification
+{
+    [self closeTurboSession];
+}
+
+- (void)closeTurboSession
+{
+    ++_turboRequest;
+    [NSNotificationCenter.defaultCenter removeObserver:self name:UIApplicationDidBecomeActiveNotification object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self name:@"NDOSXEngineStopped" object:nil];
+    self.turboSwitch.enabled = NO;
+    self.turboSwitch.on = NO;
+    ndos_x_menu_close(self.turboSession);
+    self.turboSession = 0;
+}
+
+- (void)dealloc
+{
+    if (_turboSession) ndos_x_menu_close(_turboSession);
+}
+#endif
+
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
@@ -120,6 +193,24 @@
 {
     NSDictionary *item = self.sections[indexPath.section][@"rows"][indexPath.row];
     NSString *type = item[@"Type"];
+#ifdef NDOS_X_HOST
+    if ([type isEqual:TurboAction]) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+        cell.textLabel.text = item[@"Title"];
+        cell.textLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+        cell.textLabel.adjustsFontForContentSizeCategory = YES;
+        cell.textLabel.numberOfLines = 0;
+        cell.detailTextLabel.text = TurboHint;
+        cell.detailTextLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+        cell.detailTextLabel.adjustsFontForContentSizeCategory = YES;
+        cell.detailTextLabel.numberOfLines = 0;
+        self.turboSwitch.accessibilityLabel = item[@"Title"];
+        self.turboSwitch.accessibilityHint = TurboHint;
+        cell.accessoryView = self.turboSwitch;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        return cell;
+    }
+#endif
     id value = [[DPSettings shared] valueForPreferenceKey:item[@"Key"]];
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
     cell.textLabel.text = item[@"Title"];
