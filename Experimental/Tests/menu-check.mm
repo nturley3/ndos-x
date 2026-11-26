@@ -5,6 +5,8 @@
 #include "render.h"
 #include "menu.h"
 #include "ide.h"
+#include "mem.h"
+#include "cpu.h"
 #include "../../vendor/dosbox-x/src/dos/drives.h"
 #include "../../vendor/dosbox-x/include/ndos_x_menu.h"
 #include <future>
@@ -14,6 +16,10 @@
 extern cpu_cycles_count_t CPU_CycleMax, CPU_CycleUp, CPU_CycleDown, CPU_CyclePercUsed;
 extern bool CPU_CycleAutoAdjust, ticksLocked;
 extern uint32_t emulator_speed;
+extern void KEYBOARD_SetAUXActive(bool);
+extern void KEYBOARD_AUX_Write(Bitu);
+extern void KEYBOARD_ClrBuffer();
+extern uint32_t Keyb_ig_status();
 extern uint8_t MSCDEX_GetSubUnit(char);
 extern bool CDROM_IsEmpty(CDROM_Interface *);
 extern int IDE_MatchCDROMDrive(char);
@@ -79,11 +85,71 @@ static bool emptyCD(char drive) {
     cd->Release();
     return empty;
 }
-int main() { @autoreleasepool {
+int main(int argc, char **argv) { @autoreleasepool {
+    BOOL reloadWindows=argc==3 && !strcmp(argv[1],"windows-relaunch");
+    if (argc==3 && (!strcmp(argv[1],"windows") || reloadWindows)) {
+        // The caller supplies a disposable, writable copy of an installed Windows disk.
+        NSString *image=@(argv[2]);
+        NSString *directory=[image stringByDeletingLastPathComponent];
+        NSString *config=[directory stringByAppendingPathComponent:@"windows-test.conf"];
+        NSString *contents=[NSString stringWithFormat:@"[sdl]\noutput=surface\nwaitonerror=false\n[dosbox]\nmemsize=64\n[cpu]\ncore=normal\ncputype=pentium_mmx\ncycles=fixed 60000\n[midi]\nmididevice=none\n[autoexec]\nimgmount c \"%@\" -t hdd\nboot c:\n",image];
+        require([contents writeToFile:config atomically:YES encoding:NSUTF8StringEncoding error:nil],"Windows profile");
+        SDL_SetMainReady();SDL_setenv("SDL_VIDEODRIVER","dummy",1);ndos_x_set_scene_paused(0);
+        auto worker=std::async(std::launch::async,[&]{
+            ndos_x_set_state_directory([NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"windows-test.slots"]]);
+            char *args[]={(char *)"ndos-x",(char *)"-conf",(char *)config.UTF8String,(char *)"-fastlaunch"};
+            int result=ndos_x_engine_main(4,args);ndos_x_request_stop();return result;
+        });
+        __block BOOL done=NO;
+        __block NSError *failure;
+        auto reply=^(NSArray<NDOSXMenuItem *> *items,NSError *error){failure=error;done=YES;};
+        auto wait=^{require(pumpUntil(^BOOL{return done;},30),"Windows request completes");done=NO;};
+        NDOSXMenuSession session=0;
+        require(pumpUntil(^BOOL{
+            [NSThread sleepForTimeInterval:1];
+            NDOSXMenuSession probe=ndos_x_menu_open(reply);wait();
+            BOOL ready=!failure && dos_kernel_disabled && (reloadWindows || (cpu.pmode && (cpu.cr0 & 0x80000000)));
+            ndos_x_menu_close(probe);
+            return ready;
+        },120),"Windows disk boots and the guest is ready to load");
+        if (!reloadWindows) [NSThread sleepForTimeInterval:12];
+        session=ndos_x_menu_open(reply);wait();
+        // Change one byte in extended guest RAM only while paused and restore it before resuming.
+        uint8_t previous=phys_readb(0x300000);
+        NSString *marker=[directory stringByAppendingPathComponent:@"windows-marker"];
+        FILE *disk=nullptr;
+        if (reloadWindows) {
+            NSData *byte=[NSData dataWithContentsOfFile:marker];
+            require(byte.length==1,"previous process marker");[byte getBytes:&previous length:1];
+        } else {
+            [[NSData dataWithBytes:&previous length:1] writeToFile:marker atomically:YES];
+            ndos_x_menu_invoke(session,@"state_save_1",reply);wait();
+            if (failure) NSLog(@"%@",failure);
+            require(!failure,"Windows save");
+            // MBR reserved bytes in the disposable image are outside the partition.
+            disk=fopen(image.fileSystemRepresentation,"r+b");
+            require(disk && fseek(disk,444,SEEK_SET)==0 && fputc(0x7b,disk)!=EOF && fclose(disk)==0,"later disk write");
+        }
+        phys_writeb(0x300000,previous^0xff);
+        ndos_x_menu_invoke(session,@"state_load_1",reply);wait();
+        if (failure) NSLog(@"%@",failure);
+        require(!failure && phys_readb(0x300000)==previous,"Windows RAM restored");
+        disk=fopen(image.fileSystemRepresentation,"rb");
+        require(disk && fseek(disk,444,SEEK_SET)==0 && fgetc(disk)==0x7b,"Windows image write persists");fclose(disk);
+        ndos_x_menu_close(session);
+        [NSThread sleepForTimeInterval:3];
+        session=ndos_x_menu_open(reply);wait();require(!failure && cpu.pmode,"restored guest runs");
+        ndos_x_request_stop();
+        require(worker.wait_for(std::chrono::seconds(5))==std::future_status::ready,"Windows engine stops");
+        puts("PASS: booted Windows save/load, restored RAM, guest resumes and later image writes persist");
+        return 0;
+    }
     std::thread([]{std::this_thread::sleep_for(std::chrono::seconds(40));
         fprintf(stderr,"FAIL: menu watchdog\n");_Exit(124);}).detach();
     NSString *documents=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject.path;
-    NSString *directory=[documents stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    BOOL isolated=argc==3 && !strcmp(argv[1],"isolated");
+    BOOL resumed=argc==3 && !strcmp(argv[1],"restore");
+    NSString *directory=[documents stringByAppendingPathComponent:argc==3 ? @(argv[2]) : NSUUID.UUID.UUIDString];
     [NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
     NSString *first=[directory stringByAppendingPathComponent:@"Disc One.iso"];
     NSString *second=[directory stringByAppendingPathComponent:@"Disc Two.ISO"];
@@ -99,15 +165,26 @@ int main() { @autoreleasepool {
       "imgmount d \"%@\" -t iso\nimgmount e empty -t iso\n",first]
         writeToFile:configuration atomically:YES encoding:NSUTF8StringEncoding error:nil];
     NSData *originalConfiguration=[NSData dataWithContentsOfFile:configuration];
+    // PROBE.COM waits on a guest-memory byte and acknowledges it with a second byte.
+    const uint8_t probe[]={
+        0xb8,0x00,0x90,0x8e,0xc0,                   // mov ax,9000h / mov es,ax
+        0x26,0xc6,0x06,0,0,0x51,                   // mov byte es:[0],51h
+        0x26,0x80,0x3e,1,0,0xa5,0x75,0xf8,         // wait for es:[1] == a5h
+        0x26,0xc6,0x06,0,0,0x13,0xeb,0xfe          // acknowledge and loop
+    };
+    [[NSData dataWithBytes:probe length:sizeof(probe)] writeToFile:[directory stringByAppendingPathComponent:@"PROBE.COM"] atomically:YES];
     NSString *mount=[NSString stringWithFormat:@"mount c \"%@\"",directory];
     NSString *ready=[directory stringByAppendingPathComponent:@"READY.TXT"];
+    [NSFileManager.defaultManager removeItemAtPath:ready error:nil];
     SDL_SetMainReady();SDL_setenv("SDL_VIDEODRIVER","dummy",1);
     ndos_x_set_scene_paused(0);
     auto worker=std::async(std::launch::async,[&]{
+        ndos_x_set_state_directory([NSURL fileURLWithPath:[directory stringByAppendingPathComponent:isolated ? @"other.conf.slots" : @"menu.conf.slots"]]);
         char *arguments[]={(char *)"ndos-x",(char *)"-conf",(char *)configuration.UTF8String,
             (char *)"-fastlaunch",(char *)"-c",(char *)mount.UTF8String,
-            (char *)"-c",(char *)"c:",(char *)"-c",(char *)"echo ready>READY.TXT"};
-        int result=ndos_x_engine_main(10,arguments);ndos_x_request_stop();return result;
+            (char *)"-c",(char *)"c:",(char *)"-c",(char *)"echo ready>READY.TXT",(char *)"-c",(char *)"probe.com",nullptr};
+        if (resumed) arguments[10]=nullptr;
+        int result=ndos_x_engine_main(resumed ? 10 : 12,arguments);ndos_x_request_stop();return result;
     });
     require(pumpUntil(^BOOL{return [NSFileManager.defaultManager fileExistsAtPath:ready];},20),"guest reaches shell");
     __block BOOL done=NO;
@@ -120,6 +197,83 @@ int main() { @autoreleasepool {
     NDOSXMenuSession session=ndos_x_menu_open(reply);wait();
     require(!failure && items.count>=7,"upstream top-level menu copied");
     require([items[0].name isEqualToString:@"MainMenu"] && [items[1].name isEqualToString:@"CpuMenu"],"upstream ordering");
+    if (isolated) {
+        require(!find(items,@"state_load_1"),"second profile has an empty slot 1");
+        ndos_x_menu_invoke(session,@"state_save_1",reply);wait();
+        require(!failure && find(items,@"state_load_1"),"second profile saves in its own slot");
+        ndos_x_request_stop();
+        require(worker.wait_for(std::chrono::seconds(3))==std::future_status::ready,"second profile stops");
+        return 0;
+    }
+    if (!resumed) {
+        for (int attempt=0; phys_readb(0x90000)!=0x51 && attempt<20; ++attempt) {
+            ndos_x_menu_close(session);
+            [NSThread sleepForTimeInterval:0.05];
+            session=ndos_x_menu_open(reply);wait();
+        }
+        require(phys_readb(0x90000)==0x51,"guest DOS program executing");
+    }
+    require(find(items,@"native_states").children.count==10,"ten slots");
+    NSString *slotPath=[directory stringByAppendingPathComponent:@"menu.conf.slots/1.sav"];
+    NSString *later=[directory stringByAppendingPathComponent:@"LATER.TXT"];
+    if (!resumed) {
+        require(!find(items,@"state_load_1"),"empty slot");
+        // BIOS INT 15h enables both the AUX port and mouse packet reporting.
+        KEYBOARD_SetAUXActive(true);
+        KEYBOARD_AUX_Write(0xf4);
+        KEYBOARD_ClrBuffer();
+        mem_writeb(0x180000,0x71);
+        ndos_x_menu_invoke(session,@"state_save_1",reply);wait();
+        if (failure) NSLog(@"Save failed: %@",failure);
+        require(!failure && find(items,@"state_save_1").confirmation.length,"overwrite confirmation");
+        NSData *saved=[NSData dataWithContentsOfFile:slotPath];
+        require(saved.length>0,"archive written");
+        printf("State fixture: %s\n",slotPath.fileSystemRepresentation);
+        NSString *temporary=[slotPath stringByAppendingString:@".tmp"];
+        [NSFileManager.defaultManager createDirectoryAtPath:temporary withIntermediateDirectories:NO attributes:nil error:nil];
+        [[NSData data] writeToFile:[temporary stringByAppendingPathComponent:@"obstruction"] atomically:YES];
+        ndos_x_menu_invoke(session,@"state_save_1",reply);wait();
+        require(failure && [saved isEqual:[NSData dataWithContentsOfFile:slotPath]],"failed overwrite preserves slot");
+        [NSFileManager.defaultManager removeItemAtPath:temporary error:nil];
+        [@"later write" writeToFile:later atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+    if (resumed) {
+        NSArray *errors=@[@"Engine version mismatch", @"Memory (4 KiB pages) mismatch", @"Machine type mismatch",
+                          @"Damaged or missing component", @"Damaged or missing component"];
+        for (NSUInteger i=0; i<errors.count; ++i) {
+            mem_writeb(0x180000,0x42);
+            ndos_x_menu_invoke(session,[NSString stringWithFormat:@"state_load_%lu",(unsigned long)i+2],reply);wait();
+            require([failure.localizedDescription containsString:errors[i]] && mem_readb(0x180000)==0x42,
+                    "preflight rejects incompatible or damaged state without changing memory");
+        }
+        ndos_x_menu_invoke(session,@"state_load_9",reply);wait();
+        require([failure.localizedDescription containsString:@"Damaged or missing component"],"incomplete ZIP entry rejected");
+        ndos_x_menu_refresh(session,reply);wait();
+        require([find(items,@"state_load_7").confirmation containsString:@"OTHER.EXE"],"different program named in confirmation");
+    }
+    KEYBOARD_AUX_Write(0xf5);
+    KEYBOARD_SetAUXActive(false);
+    KEYBOARD_ClrBuffer();
+    mem_writeb(0x180000,0x42);
+    ndos_x_menu_invoke(session,@"state_load_1",reply);wait();
+    if (failure) NSLog(@"Load failed: %@",failure);
+    require(!failure && mem_readb(0x180000)==0x71,"saved guest memory restored");
+    constexpr uint32_t auxAndReporting=(1u<<13)|(1u<<21);
+    require((Keyb_ig_status() & auxAndReporting)==auxAndReporting,"saved PS/2 port and packet reporting restored");
+    require([NSFileManager.defaultManager fileExistsAtPath:later],"later disk write persists");
+    phys_writeb(0x90001,0xa5);
+    ndos_x_menu_close(session);
+    [NSThread sleepForTimeInterval:0.2];
+    session=ndos_x_menu_open(reply);wait();
+    require(!failure && phys_readb(0x90000)==0x13,"restored program executes its next instruction sequence");
+    if (resumed) {
+        ndos_x_menu_invoke(session,@"state_load_8",reply);wait();
+        require(failure && [ndos_x_state_stop_reason() containsString:@"CMOS"],"partial restore requires relaunch");
+        require(worker.wait_for(std::chrono::seconds(3))==std::future_status::ready,"restored engine stops");
+        [NSFileManager.defaultManager removeItemAtPath:directory error:nil];
+        puts("PASS: cross-launch DOS state, compatibility checks, ZIP integrity and persistent disk writes");
+        return 0;
+    }
     require(find(items,@"mixer_mute").enabled,"mute supported");
     require(!find(items,@"mapper_gui").enabled && find(items,@"mapper_gui").unavailableReason.length,"desktop dialog disabled with reason");
     require(find(items,@"frameskip_3").type==0,"nested menu traversal");
@@ -366,6 +520,6 @@ int main() { @autoreleasepool {
     require(worker.wait_for(std::chrono::seconds(3))==std::future_status::ready,"engine stops after menu close");
     (void)worker.get();
     puts("PASS: real engine hierarchy, CPU, frameskip, mixer, command validation, SDL menu suppression, live ISO replacement and eject, failure recovery, and booted-guest path");
-    [NSFileManager.defaultManager removeItemAtPath:directory error:nil];
+    if (argc!=3 || resumed) [NSFileManager.defaultManager removeItemAtPath:directory error:nil];
     return 0;
 }}

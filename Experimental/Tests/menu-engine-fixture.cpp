@@ -17,3 +17,5 @@ extern "C" int ndos_x_engine_menu_invoke(const char *name) {
 }
 
 extern "C" int ndos_x_engine_menu_replace_iso(const char *, const char *) { return 2; }
+
+NDOSStateResult ndos_x_engine_state(NDOSStateOperation, const char *) { return {}; }

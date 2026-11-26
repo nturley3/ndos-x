@@ -2,6 +2,7 @@
 #import "NDOSXMenu.h"
 #include "../../vendor/dosbox-x/include/ndos_x_menu.h"
 #include <functional>
+#include <sys/stat.h>
 #include <cstring>
 #include "../../vendor/SDL2/include/SDL.h"
 #include <condition_variable>
@@ -37,6 +38,8 @@ constexpr unsigned int menuPause = 8;
 std::deque<std::function<void(bool)>> controls;
 NDOSXMenuSession menuSession = 0, nextMenuSession = 0;
 unsigned int pauseReasons = 1; // A scene must become active before execution.
+NSURL *stateDirectory; // Used exclusively by the worker.
+NSString *stateStopReason; // Set by the worker before stopping.
 bool stopping = false;
 bool releaseBeforePause = false;
 SDL_Keymod modifiers = KMOD_NONE;
@@ -298,6 +301,7 @@ extern "C" int SDL_main(int, char **) {NSLog(@"nDOS-X owns startup through its h
         _name=[record[@"name"] copy];_title=[record[@"title"] copy];
         _type=[record[@"type"] integerValue];_enabled=[record[@"enabled"] boolValue];
         _checked=[record[@"checked"] boolValue];_isoPicker=[record[@"isoPicker"] boolValue];_unavailableReason=[record[@"reason"] copy];
+        _confirmation=[record[@"confirmation"] copy];
         _subtitle=[record[@"subtitle"] copy];
         _children=[children copy];
     }
@@ -356,6 +360,56 @@ NSString *localISOPath(NSURL *url) {
         ![NSFileManager.defaultManager isReadableFileAtPath:path]) return nil;
     return path;
 }
+NSString *stateString(const std::string& value) {
+    return [NSString stringWithUTF8String:value.c_str()] ?: @"Unknown";
+}
+NSURL *slotURL(NSInteger slot) {
+    return [stateDirectory URLByAppendingPathComponent:[NSString stringWithFormat:@"%ld.sav",(long)slot]];
+}
+void appendStateMenu(NSMutableArray *records) {
+    if (!stateDirectory) return;
+    [records addObject:@{@"name":@"native_states", @"title":@"Save States", @"type":@1, @"depth":@0}];
+    for (NSInteger slot=1; slot<=10; ++slot) {
+        NSURL *url=slotURL(slot);
+        struct stat info;
+        BOOL occupied=stat(url.fileSystemRepresentation,&info)==0 || errno!=ENOENT;
+        NDOSStateResult metadata;
+        NSString *subtitle=@"Empty";
+        if (occupied) {
+            metadata=ndos_x_engine_state(NDOSStateOperation::Inspect,url.fileSystemRepresentation);
+            subtitle=metadata.error.empty() ? [NSString stringWithFormat:@"%@ · %@",stateString(metadata.program),stateString(metadata.timestamp)] : @"Unreadable save state";
+        }
+        NSString *title=[NSString stringWithFormat:@"Slot %ld",(long)slot];
+        [records addObject:@{@"name":[@"state_slot_" stringByAppendingString:slotURL(slot).lastPathComponent],
+            @"title":title, @"type":@1, @"depth":@1, @"subtitle":subtitle}];
+        NSString *save=[NSString stringWithFormat:@"state_save_%ld",(long)slot];
+        [records addObject:@{@"name":save, @"title":@"Save", @"depth":@2, @"enabled":@YES,
+            @"confirmation":occupied ? [NSString stringWithFormat:@"Replace the save state in %@?",title] : @""}];
+        if (occupied) {
+            NSString *warning=@"Loading replaces the current session. Later writes to mounted disks will remain.";
+            if (metadata.error.empty() && metadata.program!=metadata.currentProgram)
+                warning=[NSString stringWithFormat:@"%@ Saved program: %@. Current program: %@.",warning,stateString(metadata.program),stateString(metadata.currentProgram)];
+            [records addObject:@{@"name":[NSString stringWithFormat:@"state_load_%ld",(long)slot],
+                @"title":@"Load", @"depth":@2, @"enabled":@YES, @"confirmation":warning}];
+        }
+    }
+}
+NSError *runStateCommand(NSString *command) {
+    for (NSInteger slot=1; stateDirectory && slot<=10; ++slot) {
+        BOOL save=[command isEqualToString:[NSString stringWithFormat:@"state_save_%ld",(long)slot]];
+        if (!save && ![command isEqualToString:[NSString stringWithFormat:@"state_load_%ld",(long)slot]]) continue;
+        NSError *error=nil;
+        if (save && ![NSFileManager.defaultManager createDirectoryAtURL:stateDirectory withIntermediateDirectories:YES attributes:nil error:&error])
+            return error;
+        auto result=ndos_x_engine_state(save ? NDOSStateOperation::Save : NDOSStateOperation::Load,slotURL(slot).fileSystemRepresentation);
+        if (result.requiresRelaunch) {
+            stateStopReason=[NSString stringWithFormat:@"%@ Close and reopen nDOS-X.",stateString(result.error)];
+            ndos_x_request_stop();
+        }
+        return result.error.empty() ? nil : menuError(6,stateString(result.error));
+    }
+    return menuError(6,@"Unknown save slot.");
+}
 void enqueueMenu(NDOSXMenuSession session, NSString *name, NSURL *url, NDOSXMenuCompletion completion) {
     NSCAssert(NSThread.isMainThread,@"Menu requests belong to UIKit");
     NSString *command=[name copy];
@@ -384,10 +438,16 @@ void enqueueMenu(NDOSXMenuSession session, NSString *name, NSURL *url, NDOSXMenu
             valid=!stopping && session && menuSession==session;
         }
         if (!valid) { completeMenu(session,reply,@[],menuError(4,@"Menu unavailable."));return; }
+        BOOL stateAction=!image && [command hasPrefix:@"state_"];
+        if (stateAction) {
+            NSError *error=runStateCommand(command);
+            if (error) { completeMenu(session,reply,@[],error);return; }
+        }
         int result=image ? ndos_x_engine_menu_replace_iso(command.UTF8String,path.fileSystemRepresentation) :
-            command ? ndos_x_engine_menu_invoke(command.UTF8String) : 0;
+            command && !stateAction ? ndos_x_engine_menu_invoke(command.UTF8String) : 0;
         NSMutableArray *records=[NSMutableArray array];
         if (!result) result=ndos_x_engine_menu_snapshot(copyMenuEntry,(__bridge void *)records);
+        if (!result) appendStateMenu(records);
         NSUInteger index=0;
         NSArray *items=result ? @[] : menuTree(records,index,0);
         NSError *error=result ? menuError(result,result==4 ? @"The disc could not be ejected. The previous disc remains selected." : result==3 ? @"The ISO could not be loaded. The previous disc remains selected." : result==1 ? @"The engine menu is not ready. Close and reopen it after startup." :
@@ -404,6 +464,9 @@ void enqueueMenu(NDOSXMenuSession session, NSString *name, NSURL *url, NDOSXMenu
     else completeMenu(session,reply,@[],menuError(2,@"Menu unavailable or too many pending requests."));
 }
 }
+
+void ndos_x_set_state_directory(NSURL *directory) { stateDirectory=[directory copy]; }
+NSString *ndos_x_state_stop_reason(void) { return stateStopReason; }
 
 NDOSXMenuSession ndos_x_menu_open(NDOSXMenuCompletion completion) {
     NSCAssert(NSThread.isMainThread,@"Menu requests belong to UIKit");

@@ -50,11 +50,11 @@
     [self.displayLink invalidate];self.displayLink=nil;self.userInteractionEnabled=NO;
     UILabel *status=[[UILabel alloc] initWithFrame:self.bounds];
     status.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-    status.text=@"Session stopped — close and reopen nDOS-X";
+    status.text=notification.userInfo[NSLocalizedDescriptionKey] ?: @"Session stopped — close and reopen nDOS-X";
     status.textColor=UIColor.whiteColor;status.backgroundColor=[UIColor colorWithWhite:0 alpha:0.8];
     status.textAlignment=NSTextAlignmentCenter;status.numberOfLines=0;[self addSubview:status];
     UIViewController *controller=self.window.rootViewController;
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"nDOS-X stopped" message:@"Close and reopen the app to start another session. Shut down a booted operating system before closing the emulator." preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"nDOS-X stopped" message:notification.userInfo[NSLocalizedDescriptionKey] ?: @"Close and reopen the app to start another session. Shut down a booted operating system before closing the emulator." preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
     if(!controller.presentedViewController)[controller presentViewController:alert animated:YES completion:nil];
 }

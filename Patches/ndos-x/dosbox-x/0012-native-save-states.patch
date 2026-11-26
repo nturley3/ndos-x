@@ -1,0 +1,188 @@
+diff --git a/include/dosbox.h b/include/dosbox.h
+index 5bfc04999..3afb46d66 100644
+--- a/include/dosbox.h
++++ b/include/dosbox.h
+@@ -378,6 +378,10 @@ public:
+     void registerComponent(const std::string& uniqueName, Component& comp); //comp must have global lifetime!
+ 
+ private:
++#ifdef NDOS_X_HOST
++    friend struct NDOSStateArchive;
++#endif
++    bool writeArchive(const std::string& save, bool compresssaveparts, const char *save_remark);
+     SaveState() {}
+     SaveState(const SaveState&);
+     SaveState& operator=(const SaveState&);
+diff --git a/include/ndos_x_menu.h b/include/ndos_x_menu.h
+index 3905c0644..f516c708e 100644
+--- a/include/ndos_x_menu.h
++++ b/include/ndos_x_menu.h
+@@ -23,4 +23,12 @@ int ndos_x_engine_menu_invoke(const char *name);
+ int ndos_x_engine_menu_replace_iso(const char *name, const char *path);
+ #ifdef __cplusplus
+ }
++
++#include <string>
++enum class NDOSStateOperation { Inspect, Save, Load };
++struct NDOSStateResult {
++    std::string program, timestamp, currentProgram, error;
++    bool requiresRelaunch = false;
++};
++NDOSStateResult ndos_x_engine_state(NDOSStateOperation operation, const char *path);
+ #endif
+diff --git a/src/misc/savestates.cpp b/src/misc/savestates.cpp
+index 27545af93..6fae6b558 100644
+--- a/src/misc/savestates.cpp
++++ b/src/misc/savestates.cpp
+@@ -463,7 +463,6 @@ void SaveState::save(size_t slot) { //throw (Error)
+ 		save_remark = new_remark;
+ 	}
+ #endif
+-	int errclose;
+ 	std::string path;
+ 	bool Get_Custom_SaveDir(std::string& savedir);
+ 	if(!Get_Custom_SaveDir(path)) {
+@@ -479,7 +478,23 @@ void SaveState::save(size_t slot) { //throw (Error)
+ 	std::string save=use_save_file&&savefilename.size()?savefilename:temp+slotname.str()+".sav";
+     LOG_MSG("Saving state to slot: %d (%s)", (int)slot + 1, save.c_str());
+ 
+-	zipFile zf;
++	save_err = !writeArchive(save, compresssaveparts, save_remark);
++	if (!dos_kernel_disabled) flagged_backup((char *)save.c_str());
++
++	if (save_err)
++		notifyError(MSG_Get("SAVE_FAILED"));
++	else
++		LOG_MSG("[%s]: Saved. (Slot %d)", getTime().c_str(), (int)slot+1);
++}
++
++bool SaveState::writeArchive(const std::string& save, bool compresssaveparts, const char *save_remark) {
++	bool save_err=false;
++	int errclose;
++	zipFile zf = NULL;
++	struct WriterCleanup {
++		zipFile& file;
++		~WriterCleanup() { if (file) zipClose(file, NULL); }
++	} cleanup{zf};
+ 	{
+ 		const char *global_comment = "DOSBox-X save state";
+ 		zlib_filefunc64_def ffunc;
+@@ -557,6 +572,7 @@ void SaveState::save(size_t slot) { //throw (Error)
+ 		zip_ostreambuf zos(zf); std::ostream ss(&zos);
+ 
+ 		i->second.comp.getBytes(ss);
++		if (!ss) { save_err = true; goto done; }
+ 
+ 		if ((errclose=zos.close()) != ZIP_OK) { save_err = true; goto done; }
+ 	}
+@@ -564,15 +580,11 @@ void SaveState::save(size_t slot) { //throw (Error)
+ done:
+ 	if (zf != NULL) {
+ 		errclose = zipClose(zf,NULL);
++		zf = NULL;
+ 		if (errclose != ZIP_OK) save_err = true;
+ 	}
+ 
+-	if (!dos_kernel_disabled) flagged_backup((char *)save.c_str());
+-
+-	if (save_err)
+-		notifyError(MSG_Get("SAVE_FAILED"));
+-	else
+-		LOG_MSG("[%s]: Saved. (Slot %d)", getTime().c_str(), (int)slot+1);
++	return !save_err;
+ }
+ 
+ void savestatecorrupt(const char* part) {
+@@ -933,3 +945,92 @@ std::string SaveState::getName(size_t slot, bool nl) const {
+     unzClose(zf);
+ 	return ret;
+ }
++
++#ifdef NDOS_X_HOST
++#include "ndos_x_menu.h"
++
++// Drain each entry before closing it: minizip only checks CRC at end of entry.
++struct NDOSStateArchive {
++    unzFile file;
++    explicit NDOSStateArchive(const char *path) : file(unzOpen64(path)) {}
++    ~NDOSStateArchive() { if (file) unzClose(file); }
++
++    bool openEntry(const std::string& name) {
++        return unzLocateFile(file, name.c_str(), 1) == UNZ_OK &&
++               unzOpenCurrentFile(file) == UNZ_OK;
++    }
++    bool readEntry(const std::string& name, std::string *value = nullptr) {
++        if (!openEntry(name)) return false;
++        char buffer[16384];
++        int count;
++        while ((count = unzReadCurrentFile(file, buffer, sizeof(buffer))) > 0) {
++            if (value) {
++                if (value->size() + count > 4096) break;
++                value->append(buffer, count);
++            }
++        }
++        const bool complete = count == 0 && unzeof(file) == 1;
++        return unzCloseCurrentFile(file) == UNZ_OK && complete;
++    }
++
++    static NDOSStateResult run(NDOSStateOperation operation, const char *path) {
++        NDOSStateResult result;
++        result.currentProgram = RunningProgram;
++        SaveState& state = SaveState::instance();
++        const bool saving = operation == NDOSStateOperation::Save;
++        std::string temporary = std::string(path) + ".tmp";
++        struct Cleanup {
++            const char *path;
++            ~Cleanup() { if (path) remove(path); }
++        } cleanup{saving ? temporary.c_str() : nullptr};
++        try {
++            if (operation != NDOSStateOperation::Inspect && MEM_TotalPages() > 262144)
++                throw std::string("Save states support up to 1 GiB of guest memory.");
++            if (saving) {
++                bool compress = static_cast<Section_prop *>(control->GetSection("dosbox"))->Get_bool("compresssaveparts");
++                if (!state.writeArchive(temporary, compress, ""))
++                    throw std::string("Could not write the save state.");
++            }
++            NDOSStateArchive archive(saving ? temporary.c_str() : path);
++            if (!archive.file || !archive.readEntry("Program_Name", &result.program) ||
++                !archive.readEntry("Time_Stamp", &result.timestamp))
++                throw std::string("Could not read the save state information.");
++            if (operation == NDOSStateOperation::Inspect) return result;
++            auto check = [&](const char *key, const char *label, std::string current) {
++                std::string saved;
++                if (!archive.readEntry(key, &saved)) throw std::string("Invalid save state entry: ") + key;
++                if (!strcmp(key, "DOSBox-X_Version")) saved = saved.substr(0, saved.find('\n'));
++                if (saved != current)
++                    throw std::string(label) + " mismatch. Saved: " + saved + ". Current: " + current + ".";
++            };
++            check("DOSBox-X_Version", "Engine version", std::string("DOSBox-X ") + VERSION + " (" + SDL_STRING + ")");
++            check("Memory_Size", "Memory (4 KiB pages)", std::to_string(MEM_TotalPages()));
++            check("Machine_Type", "Machine type", getType());
++            for (auto& entry : state.components)
++                if (!archive.readEntry(entry.first)) throw std::string("Damaged or missing component: ") + entry.first;
++            if (saving) {
++                if (rename(temporary.c_str(), path)) throw std::string("Could not replace the save slot.");
++            } else {
++                for (auto& entry : state.components) {
++                    if (!archive.openEntry(entry.first)) throw std::string("Could not open component: ") + entry.first;
++                    zip_istreambuf buffer(archive.file);
++                    std::istream stream(&buffer);
++                    result.requiresRelaunch = true;
++                    entry.second.comp.setBytes(stream);
++                    if (!stream || buffer.close() != UNZ_OK)
++                        throw std::string("Could not restore component: ") + entry.first;
++                }
++                result.requiresRelaunch = false;
++            }
++        } catch (const std::string& message) {
++            result.error = message;
++        } catch (...) {
++            result.error = "The emulator could not complete the save state operation.";
++        }
++        return result;
++    }
++};
++NDOSStateResult ndos_x_engine_state(NDOSStateOperation operation, const char *path) {
++    return NDOSStateArchive::run(operation, path);
++}
++#endif

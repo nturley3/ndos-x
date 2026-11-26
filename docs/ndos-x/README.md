@@ -124,6 +124,14 @@ Opening the sheet releases held input and pauses guest execution and audio. A se
 
 The host disables DOSBox-X's SDL desktop menu regardless of `showmenu` in the profile, while retaining its model for the native sheet. Profiles with `showmenu=true` or no `showmenu` entry therefore no longer enter the blocking desktop menu handler on guest clicks. Keep `autolock=false` in custom profiles so the first click is not consumed by desktop mouse capture. The earlier workaround `showmenu=false` remains harmless. Physical iPad menu and mouse confirmation remains a device acceptance check.
 
+### Save and load a running machine
+
+Open **Engine Menu → Save States**, choose one of the ten numbered slots, and tap **Save**. Each occupied slot shows the guest program and save time. To resume, launch the same profile, open its slot, and tap **Load**. The guest stays paused until you dismiss Engine Menu.
+
+Loading restores guest execution and memory. Writes made to a mounted directory or disk image after saving persist, including Windows filesystem changes. Use a separate backup when you need to recover disk contents.
+
+Slots live under `Library/Application Support/Save States/<configuration filename>/`. Renaming a configuration selects a separate set of slots. To load a state, use the same engine version, machine type and guest memory size. You can confirm a different current program, including the DOS prompt after relaunch.
+
 ### CPU timing controls
 
 In **Engine Menu → CPU**, **Turbo (fast-forward)** toggles fast-forward and shows a checkmark while active. The **Turbo (fast-forward)** switch at the top of **Settings → General** controls the same running session. Turning it off resumes the current timing speed. **Normal speed** turns Turbo off and restores 100% timing. **Speed up** and **Slow down** change timing speed by five percentage points; the minimum is 1%, and increasing from 1% reaches 5%. Their subtitles show the current timing percentage. During Turbo they show **After Turbo** because adjustments take effect when Turbo ends.
@@ -182,6 +190,7 @@ bash scripts/test-ndos-x-profiles.sh
 bash scripts/test-ndos-x-host.sh booted
 bash scripts/test-ndos-x-guest-mouse.sh booted true
 bash scripts/test-ndos-x-guest-mouse.sh booted omitted
+bash scripts/test-ndos-x-guest-mouse.sh booted true restore
 bash scripts/test-ndos-x-menu.sh booted
 python3 scripts/test-settings-ui.py --destination 'platform=iOS Simulator,id=DEVICE_UUID' \
     --host nDOS-X --source Experimental/Tests/menu-ui-check.m \
@@ -192,6 +201,8 @@ python3 scripts/test-settings-ui.py --destination 'platform=iOS Simulator,id=DEV
 ```
 
 The real-engine menu check also verifies live ISO replacement, disc ejection with hardware retained, repeated eject and reinsertion in DOS and the booted-guest path, insertion into an empty drive, IDE-only targets, corrupt/missing-image recovery (including moved active media), independent CD drives, app-local path restrictions, stale sessions, stop, and the booted-guest replacement branch using generated media. It does not replace physical-device DOS/Windows acceptance.
+
+The menu check also saves a running DOS program, loads it from a fresh process, and exercises profile isolation, failed overwrite, damaged archives, compatibility checks and partial-restore shutdown. Set `NDOS_X_WINDOWS_IMAGE` to a bootable installed Windows 95/98 disk image to exercise same-session and fresh-process restore on a temporary writable copy.
 
 The real-engine menu check verifies hierarchy, CPU cycles, renderer frameskip, mixer state, hidden/disabled command rejection, and suppression of the SDL menu. The hosted UIKit check exercises the Eject disc label, immediate invocation, subsequent ISO insertion, ISO browsing in subfolders, cancellation, ISO-only filtering, native mount-error presentation, navigation, checkmark updates, disabled explanations, dismissal, and stop. The real-host Simulator checks exercise paused menu requests, snapshot ownership, stale sessions, cancellation on stop, pending key releases across nested settings/scene/view pause reasons, repeated characters, modifier ordering, fractional mouse motion, copied frame ownership, and stop while paused. Preparation fixtures cover added/deleted patch files, idempotency, unexpected index/working-tree/untracked changes, and verified reversal for updates.
 

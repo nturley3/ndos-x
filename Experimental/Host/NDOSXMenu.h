@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) BOOL enabled;
 @property(nonatomic, readonly) BOOL checked;
 @property(nonatomic, readonly) BOOL isoPicker;
+@property(nonatomic, copy, readonly, nullable) NSString *confirmation;
 @property(nonatomic, copy, readonly) NSString *unavailableReason;
 @property(nonatomic, copy, readonly) NSString *subtitle;
 @property(nonatomic, copy, readonly) NSArray<NDOSXMenuItem *> *children;
@@ -24,6 +25,9 @@ typedef void (^NDOSXMenuCompletion)(NSArray<NDOSXMenuItem *> *items, NSError * _
 #ifdef __cplusplus
 extern "C" {
 #endif
+// Set on the worker before the engine starts.
+void ndos_x_set_state_directory(NSURL *directory);
+NSString * _Nullable ndos_x_state_stop_reason(void);
 NDOSXMenuSession ndos_x_menu_open(NDOSXMenuCompletion completion);
 void ndos_x_menu_refresh(NDOSXMenuSession session, NDOSXMenuCompletion completion);
 void ndos_x_menu_invoke(NDOSXMenuSession session, NSString *name, NDOSXMenuCompletion completion);
