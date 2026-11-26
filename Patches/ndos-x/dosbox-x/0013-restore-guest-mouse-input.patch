@@ -1,0 +1,14 @@
+diff --git a/src/gui/sdlmain.cpp b/src/gui/sdlmain.cpp
+index 53ffa4d36..ad6bfb5e3 100644
+--- a/src/gui/sdlmain.cpp
++++ b/src/gui/sdlmain.cpp
+@@ -10953,4 +10953,9 @@ void POD_Load_Sdlmain( std::istream& stream )
+ 	// - pure data
+ 	READ_POD( &sdl.mouse.autolock, sdl.mouse.autolock );
+ 	READ_POD( &sdl.mouse.requestlock, sdl.mouse.requestlock );
++#ifdef NDOS_X_HOST
++    // UIKit owns the pointer. A restored SDL window-capture request would
++    // consume the first guest click after the Engine Menu closes.
++    sdl.mouse.requestlock = false;
++#endif
+ }

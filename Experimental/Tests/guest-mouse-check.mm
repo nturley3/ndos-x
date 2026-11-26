@@ -1,4 +1,5 @@
 #import "NDOSXHost.h"
+#import "NDOSXMenu.h"
 #include "SDL.h"
 #include <chrono>
 #include <cstdio>
@@ -51,7 +52,8 @@ int main(int argc, char **argv) {
         NSString *configuration = [directory stringByAppendingPathComponent:@"test.conf"];
         NSString *menu = argc>1 && !strcmp(argv[1],"omitted") ? @"" :
             [NSString stringWithFormat:@"showmenu=%s\n",argc>1 ? argv[1] : "false"];
-        NSString *profile = [@"[sdl]\noutput=surface\nautolock=false\nwaitonerror=false\n" stringByAppendingString:menu];
+        bool restore = argc > 2 && !strcmp(argv[2], "restore");
+        NSString *profile = [NSString stringWithFormat:@"[sdl]\noutput=surface\nautolock=%@\nwaitonerror=false\n%@", restore ? @"true" : @"false", menu];
         profile = [profile stringByAppendingString:@"[dosbox]\nmachine=svga_s3\nmemsize=128\n"
                              "[cpu]\ncore=normal\ncputype=pentium_mmx\ncycles=fixed 20000\n"
                              "[midi]\nmididevice=none\n[render]\nscaler=none\n"];
@@ -65,6 +67,7 @@ int main(int argc, char **argv) {
         SDL_SetMainReady();
         SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
         auto worker = std::async(std::launch::async, [&] {
+            if (restore) ndos_x_set_state_directory([NSURL fileURLWithPath:directory]);
             char *arguments[] = {(char *)"ndos-x", (char *)"-conf", (char *)configuration.UTF8String,
                 (char *)"-fastlaunch", (char *)"-c", (char *)mount.UTF8String,
                 (char *)"-c", (char *)"c:", (char *)"-c", (char *)"C:\\MPROBE.COM"};
@@ -73,6 +76,21 @@ int main(int argc, char **argv) {
 
         Sample sample{};
         bool ready = waitSample(feedback, sample, [](Sample) { return true; }, 15000);
+        if (ready && restore) {
+            __block bool finished = false;
+            auto reply = ^(NSArray<NDOSXMenuItem *> *items, NSError *error) {
+                if (error) { NSLog(@"Mouse probe menu error: %@",error); _Exit(1); }
+                finished = true;
+            };
+            auto wait = ^{
+                while (!finished) [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+                finished = false;
+            };
+            NDOSXMenuSession session = ndos_x_menu_open(reply); wait();
+            ndos_x_menu_invoke(session, @"state_save_1", reply); wait();
+            ndos_x_menu_invoke(session, @"state_load_1", reply); wait();
+            ndos_x_menu_close(session);
+        }
         bool passed = ready;
         printf("READY=%d driver=%04x initial=(%u,%u) buttons=%u\n",
                ready, sample.driver, sample.x, sample.y, sample.buttons);

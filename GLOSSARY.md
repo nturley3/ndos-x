@@ -49,3 +49,9 @@ Timing speed of 100%, with Turbo turned off.
 
 **Turbo**:
 Fast-forward mode that lets guest time advance without normal timing limits. The normal timing speed applies again when Turbo ends.
+
+**Save state**:
+A saved point in a machine’s execution. Loading it restores guest memory and device state. Changes already written to mounted disks persist.
+
+**Save slot**:
+A numbered place in a machine profile that holds one save state. Saving there again replaces the previous state.

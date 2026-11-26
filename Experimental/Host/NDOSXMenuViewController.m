@@ -216,12 +216,30 @@
             [self.navigationController pushViewController:browser animated:YES];
             return;
         }
-        root.busy=YES;root.status=@"Applying change…";[root reloadControllers];
-        __weak NDOSXMenuViewController *weakRoot=root;
-        ndos_x_menu_invoke(root.session,item.name,^(NSArray<NDOSXMenuItem *> *items, NSError *error) {
-            [weakRoot receivedItems:items error:error];
-        });
+        if (item.confirmation.length) {
+            UIAlertController *alert=[UIAlertController alertControllerWithTitle:item.title message:item.confirmation preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:item.title style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+                [self invokeItem:item];
+            }]];
+            [self presentViewController:alert animated:YES completion:nil];
+        } else [self invokeItem:item];
     }
+}
+- (void)invokeItem:(NDOSXMenuItem *)item {
+    NDOSXMenuViewController *root=self.root;
+    if (root.busy || root.finished) return;
+    BOOL save=[item.name hasPrefix:@"state_save_"], load=[item.name hasPrefix:@"state_load_"];
+    root.busy=YES;
+    root.status=save ? @"Saving…" : load ? @"Loading…" : @"Applying change…";
+    [root reloadControllers];
+    ndos_x_menu_invoke(root.session,item.name,^(NSArray<NDOSXMenuItem *> *items, NSError *error) {
+        [root receivedItems:items error:error];
+        if (!error && (save || load)) {
+            root.status=save ? @"State saved." : @"State loaded.";
+            [root reloadControllers];
+        }
+    });
 }
 - (void)replaceISO:(NSURL *)url target:(NSString *)target {
     NDOSXMenuViewController *root=self.root;

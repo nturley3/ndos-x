@@ -14,7 +14,24 @@ xcrun --sdk iphonesimulator clang++ -target arm64-apple-ios15.4-simulator -isysr
     -lz -liconv -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
     -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework GameController -framework CoreMotion -framework CoreHaptics \
     -o "$ndos_x_root/output/ndos-x-menu-check"
-ndos_x_result=0
-xcrun simctl spawn "${1:-booted}" "$ndos_x_root/output/ndos-x-menu-check" > "$ndos_x_root/output/ndos-x-menu-result.log" 2>&1 || ndos_x_result=$?
-tail -12 "$ndos_x_root/output/ndos-x-menu-result.log"
-exit "$ndos_x_result"
+ndos_x_test_directory="menu-check-$(uuidgen)"
+for ndos_x_phase in save isolated restore; do
+    ndos_x_result=0
+    xcrun simctl spawn "${1:-booted}" "$ndos_x_root/output/ndos-x-menu-check" "$ndos_x_phase" "$ndos_x_test_directory" > "$ndos_x_root/output/ndos-x-menu-result.log" 2>&1 || ndos_x_result=$?
+    tail -12 "$ndos_x_root/output/ndos-x-menu-result.log"
+    if [[ "$ndos_x_result" != 0 ]]; then exit "$ndos_x_result"; fi
+    if [[ "$ndos_x_phase" == save ]]; then
+        ndos_x_slot=$(sed -n 's/^State fixture: //p' "$ndos_x_root/output/ndos-x-menu-result.log")
+        python3 "$ndos_x_root/Experimental/Tests/make-state-fixtures.py" "$ndos_x_slot"
+    fi
+done
+
+# Optional booted Windows test. Keep all guest writes on a disposable copy.
+if [[ -n "${NDOS_X_WINDOWS_IMAGE:-}" ]]; then
+    ndos_x_windows_dir=$(mktemp -d "$ndos_x_root/output/windows-state-check.XXXXXX")
+    trap 'rm -rf "$ndos_x_windows_dir"' EXIT
+    cp "$NDOS_X_WINDOWS_IMAGE" "$ndos_x_windows_dir/windows.img"
+    for ndos_x_phase in windows windows-relaunch; do
+        xcrun simctl spawn "${1:-booted}" "$ndos_x_root/output/ndos-x-menu-check" "$ndos_x_phase" "$ndos_x_windows_dir/windows.img"
+    done
+fi

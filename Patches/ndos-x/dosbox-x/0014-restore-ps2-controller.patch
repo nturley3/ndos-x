@@ -1,0 +1,88 @@
+diff --git a/src/hardware/keyboard.cpp b/src/hardware/keyboard.cpp
+index 423e8d274..5cf7a79e7 100644
+--- a/src/hardware/keyboard.cpp
++++ b/src/hardware/keyboard.cpp
+@@ -258,6 +258,48 @@ void KEYBOARD_SetAUXActive(bool on) {
+     keyb.cb_irq12 = on;
+ }
+ 
++#ifdef NDOS_X_HOST
++// Append the controller side of the mouse state to the Mouse ZIP entry. The
++// upstream Keyboard entry already contains the scan buffer and pending event.
++void KEYBOARD_SaveAuxState(std::ostream& stream) {
++    writePOD(stream, uint8_t{1});
++    writePOD(stream, keyb.ps2mouse);
++    writePOD(stream, keyb.aux_command);
++    writePOD(stream, keyb.auxactive);
++    writePOD(stream, keyb.cb_irq12);
++    writePOD(stream, keyb.auxchanged);
++}
++
++void KEYBOARD_LoadAuxState(std::istream& stream, bool bios_callback_active) {
++    if (!stream) return;
++    uint8_t version = 0;
++    readPOD(stream, version);
++    if (stream.eof() && stream.gcount() == 0) {
++        stream.clear();
++        // Older slots saved the enabled INT 15h callback but omitted the
++        // corresponding controller state. Restore its BIOS stream-mode path
++        // directly, without injecting command acknowledgements into port 60h.
++        if (!IS_PC98_ARCH && bios_callback_active && keyb.ps2mouse.type != MOUSE_NONE) {
++            KEYBOARD_SetAUXActive(true);
++            keyb.ps2mouse.mode = MM_STREAM;
++            keyb.ps2mouse.reporting = true;
++            keyb.ps2mouse.int33_taken = false;
++        }
++        return;
++    }
++    if (version != 1) {
++        stream.setstate(std::ios::failbit);
++        return;
++    }
++    readPOD(stream, keyb.ps2mouse);
++    readPOD(stream, keyb.aux_command);
++    readPOD(stream, keyb.auxactive);
++    readPOD(stream, keyb.cb_irq12);
++    readPOD(stream, keyb.auxchanged);
++}
++#endif
++
++
+ static void KEYBOARD_SetPort60(uint16_t val) {
+     keyb.auxchanged=(val&AUX)>0;
+     keyb.p60changed=true;
+diff --git a/src/ints/mouse.cpp b/src/ints/mouse.cpp
+index 84ada2d37..60708354e 100644
+--- a/src/ints/mouse.cpp
++++ b/src/ints/mouse.cpp
+@@ -2806,6 +2806,10 @@ void *MOUSE_Limit_Events_PIC_Event = (void*)((uintptr_t)MOUSE_Limit_Events);
+ 
+ void PC98_Mouse_SaveState(std::ostream& stream);       // Keyboard.cpp: the PC-98 bus mouse
+ void PC98_Mouse_LoadState(std::istream& stream);
++#ifdef NDOS_X_HOST
++void KEYBOARD_SaveAuxState(std::ostream& stream);
++void KEYBOARD_LoadAuxState(std::istream& stream, bool bios_callback_active);
++#endif
+ 
+ namespace
+ {
+@@ -2864,6 +2868,9 @@ private:
+ 
+ 		// - PC-98 bus mouse registers (last, so older states without them still load)
+ 		PC98_Mouse_SaveState( stream );
++#ifdef NDOS_X_HOST
++		KEYBOARD_SaveAuxState(stream);
++#endif
+ 	}
+ 
+ 	void setBytes(std::istream& stream) override
+@@ -2918,6 +2925,9 @@ private:
+ 
+ 		// - PC-98 bus mouse registers
+ 		PC98_Mouse_LoadState( stream );
++#ifdef NDOS_X_HOST
++		KEYBOARD_LoadAuxState(stream, useps2callback && ps2callbackinit);
++#endif
+ 	}
+ } dummy;
+ }

@@ -75,6 +75,9 @@
     }]);
     NSString *documents=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject.path;
     NSString *profile=[documents stringByAppendingPathComponent:@"config/iso-ui.conf"];
+    NSURL *support=[NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+    NSURL *testSlot=[support URLByAppendingPathComponent:@"Save States/iso-ui.conf/10.sav"];
+    [NSFileManager.defaultManager removeItemAtURL:testSlot error:nil];
     NSString *fixtures=[documents stringByAppendingPathComponent:@"ISOBrowserTest"];
     [NSFileManager.defaultManager removeItemAtPath:[fixtures stringByAppendingPathComponent:@"READY.TXT"] error:nil];
     XCTAssertTrue([NSFileManager.defaultManager createDirectoryAtPath:fixtures withIntermediateDirectories:YES attributes:nil error:nil]);
@@ -102,6 +105,32 @@
     if (![root isKindOfClass:NDOSXMenuViewController.class]) return;
     XCTAssertTrue([self waitUntil:^BOOL{return [self rowNamed:@"Sound" inMenu:root]!=nil;}]);
     XCTAssertTrue([self waitUntil:^BOOL{return !navigation.isBeingPresented && navigation.transitionCoordinator==nil;}]);
+    NSIndexPath *states=[self rowNamed:@"Save States" inMenu:root];
+    XCTAssertNotNil(states);if (!states) return;
+    [root tableView:root.tableView didSelectRowAtIndexPath:states];
+    XCTAssertTrue([self waitUntil:^BOOL{return navigation.topViewController!=root && navigation.transitionCoordinator==nil;}]);
+    NDOSXMenuViewController *slots=(id)navigation.topViewController;
+    NSIndexPath *tenth=[self rowNamed:@"Slot 10" inMenu:slots];
+    XCTAssertNotNil(tenth);if (!tenth) return;
+    [slots tableView:slots.tableView didSelectRowAtIndexPath:tenth];
+    XCTAssertTrue([self waitUntil:^BOOL{return navigation.topViewController!=slots && navigation.transitionCoordinator==nil;}]);
+    NDOSXMenuViewController *actions=(id)navigation.topViewController;
+    NSIndexPath *save=[self rowNamed:@"Save" inMenu:actions];
+    XCTAssertNotNil(save);if (!save) return;
+    [actions tableView:actions.tableView didSelectRowAtIndexPath:save];
+    XCTAssertTrue([self waitUntil:^BOOL{return [self rowNamed:@"Load" inMenu:actions]!=nil;}]);
+    for (NSString *title in @[@"Save",@"Load"]) {
+        NSIndexPath *action=[self rowNamed:title inMenu:actions];
+        [actions tableView:actions.tableView didSelectRowAtIndexPath:action];
+        UIAlertController *alert=(id)actions.presentedViewController;
+        XCTAssertTrue([alert isKindOfClass:UIAlertController.class]);
+        XCTAssertEqualObjects(alert.actions.firstObject.title,@"Cancel");
+        if ([title isEqual:@"Load"]) XCTAssertTrue([alert.message containsString:@"mounted disks"]);
+        XCTAssertTrue([self waitUntil:^BOOL{return !alert.isBeingPresented;}]);
+        [alert dismissViewControllerAnimated:NO completion:nil];
+        XCTAssertTrue([self waitUntil:^BOOL{return actions.presentedViewController==nil;}]);
+    }
+    [navigation popToRootViewControllerAnimated:NO];
     NSIndexPath *cpu=[self rowWithEngineName:@"CpuMenu" inMenu:root];
     XCTAssertNotNil(cpu);if (!cpu) return;
     [root tableView:root.tableView didSelectRowAtIndexPath:cpu];

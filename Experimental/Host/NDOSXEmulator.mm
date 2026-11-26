@@ -38,6 +38,7 @@ extern "C" {
 #import "keyinfotable.h"
 #import "NDOSXHost.h"
 #import "NDOSXProfiles.h"
+#import "NDOSXMenu.h"
 
 
 
@@ -205,9 +206,13 @@ static BOOL engineAttempted;
         NSArray<NSString *> *arguments = [profiles argumentsForPath:self.ndosXConfigPath];
         char **argv = (char **)calloc(arguments.count + 1, sizeof(char *));
         for (NSUInteger i = 0; i < arguments.count; ++i) argv[i] = (char *)arguments[i].UTF8String;
+        NSURL *support=[NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+        NSURL *states=[support URLByAppendingPathComponent:@"Save States" isDirectory:YES];
+        ndos_x_set_state_directory([states URLByAppendingPathComponent:self.ndosXConfigPath.lastPathComponent isDirectory:YES]);
         SDL_SetMainReady();
         SDL_setenv("SDL_VIDEODRIVER","dummy",1);
         int exitStatus = ndos_x_engine_main((int)arguments.count,argv);
+        NSString *stopReason=ndos_x_state_stop_reason();
         free(argv);
         ndos_x_request_stop();
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -216,7 +221,8 @@ static BOOL engineAttempted;
             self->started = NO;
             NSLog(@"nDOS-X engine stopped with status %d",exitStatus);
             // Relaunching the engine in-process is deferred; preserve UIKit.
-            [[NSNotificationCenter defaultCenter] postNotificationName:@"NDOSXEngineStopped" object:@(exitStatus)];
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"NDOSXEngineStopped" object:@(exitStatus)
+                userInfo:stopReason ? @{NSLocalizedDescriptionKey:stopReason} : nil];
         });
     }
 }
